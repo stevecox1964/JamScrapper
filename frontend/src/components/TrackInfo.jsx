@@ -25,6 +25,10 @@ export default function TrackInfo({ media }) {
   const artistImg = media.artistImages?.[imgIndex];
   const albumArt = media.albumArt;
 
+  const accentColor = media.dominantColors?.[0]
+    ? `rgb(${media.dominantColors[0].join(',')})`
+    : null;
+
   return (
     <>
       {/* Background artist image */}
@@ -36,15 +40,35 @@ export default function TrackInfo({ media }) {
       )}
 
       {/* Track info overlay */}
-      <div className={`track-info ${visible ? 'visible' : ''}`}>
+      <div
+        className={`track-info ${visible ? 'visible' : ''}`}
+        style={accentColor ? { borderColor: `${accentColor}33` } : undefined}
+      >
         {albumArt && (
           <img src={albumArt} alt="Album art" className="album-art" />
         )}
         <div className="track-text">
           <div className="track-title">{media.title}</div>
-          <div className="track-artist">{media.artist}</div>
+          <div
+            className="track-artist"
+            style={accentColor ? { color: accentColor } : undefined}
+          >
+            {media.artist}
+          </div>
           {media.album && (
             <div className="track-album">{media.album}</div>
+          )}
+          {media.genres?.length > 0 && (
+            <div className="track-genres">
+              {media.genres.slice(0, 4).map((genre) => (
+                <span key={genre} className="genre-tag">{genre}</span>
+              ))}
+            </div>
+          )}
+          {media.detectionSource && (
+            <span className="detection-badge">
+              {media.detectionSource === 'fingerprint' ? 'Identified' : 'Now Playing'}
+            </span>
           )}
         </div>
       </div>

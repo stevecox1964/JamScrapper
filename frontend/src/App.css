@@ -205,3 +205,28 @@ body {
   font-size: 11px;
   color: var(--text-dim);
 }
+
+.track-genres {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-top: 3px;
+}
+
+.genre-tag {
+  font-size: 9px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-dim);
+  text-transform: lowercase;
+  letter-spacing: 0.3px;
+}
+
+.detection-badge {
+  font-size: 9px;
+  color: var(--text-dim);
+  opacity: 0.6;
+  font-style: italic;
+  margin-top: 2px;
+}

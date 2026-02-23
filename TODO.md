@@ -1,20 +1,25 @@
-# TODO - Pick up here
+# TODO
 
-## Test media detection
-- Play an actual song (Spotify desktop works best, or YouTube Music in Chrome)
-- Restart backend: `cd backend && python server.py`
-- Check terminal for "Now playing: Artist - Title" output
-- Verify track info overlay appears in bottom-left of visualizer
-- Verify artist background image loads behind visualizer
+## Working
+- Audio capture + FFT streaming at 30fps
+- 7 visualizer modes (bars, waveform, radial, tunnel, galaxy, terrain, starfield)
+- Media detection via Windows "Now Playing" (works with Spotify, YouTube Music)
+- Artist profile system (genres, colors, images, mood tags)
+- Audio fingerprinting module (needs AcoustID API key to activate)
 
-## If media detection doesn't work
-- Pandora stations page won't trigger it (need actual song playing)
-- Try Spotify desktop — it exposes full metadata + album art natively
-- YouTube Music in Chrome should work via tab title parsing
+## Known Limitations
+- Pandora web player doesn't expose song metadata through Chrome's media session
+- Audio fingerprinting requires free AcoustID API key + fpcalc install
 
-## Future ideas
-- Integrate artist images INTO the 3D visualizers (textured planes, particle textures)
-- Add more visualizer modes (spectrum waterfall, DNA helix, etc.)
-- Keyboard shortcuts to cycle modes
+## Next Up
+- Beat detection (pulse effects on kicks, flash on snares)
+- Keyboard shortcuts to cycle visualizer modes
 - Fullscreen toggle
-- Smooth transitions between visualizer modes
+- Smooth transitions between modes
+- Bass energy driving camera shake / color intensity in 3D modes
+
+## Future
+- Plugin architecture for drop-in visualizer engines
+- Song-specific choreographed animations
+- More visualizer modes (spectrum waterfall, DNA helix, etc.)
+- Artist imagery integrated into 3D visualizers

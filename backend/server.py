@@ -11,6 +11,9 @@ from winrt.windows.media.control import (
 )
 from winrt.windows.storage.streams import Buffer, InputStreamOptions
 
+from fingerprinter import AudioFingerprinter, load_acoustid_key
+from artist_store import ArtistStore, enrich_artist_profile
+
 SAMPLE_RATE = 44100
 BLOCK_SIZE = 2048
 FFT_BINS = 128
@@ -58,9 +61,21 @@ media_info = {
     "album": "",
     "albumArt": None,       # base64 data URI
     "artistImages": [],     # list of image URLs
+    "dominantColors": [],
+    "genres": [],
+    "moodTags": [],
+    "preferredVisualizer": "",
+    "detectionSource": "",
+    "_profileVersion": 0,
 }
 _last_track_key = ""
+_profile_version = 0
+_detection_source = ""
 _image_cache = {}  # artist -> image list
+
+# Artist profile storage and audio fingerprinter
+artist_store = ArtistStore()
+fingerprinter = AudioFingerprinter(api_key=load_acoustid_key())
 
 
 # Known streaming services and their tab title patterns
@@ -135,7 +150,7 @@ def _extract_from_props(props, best_artist, best_title):
     parsed_artist, parsed_title = parse_tab_title(title)
     if parsed_artist or parsed_title:
         return parsed_artist, parsed_title, album, props
-    return "", title, album, props
+    return None
 
 
 async def get_media_session_info():
@@ -244,7 +259,7 @@ def fetch_artist_images(artist_name):
 
 async def media_poll_loop():
     """Poll Windows media session every 3 seconds for track changes."""
-    global _last_track_key, media_info
+    global _last_track_key, media_info, _profile_version, _detection_source
 
     while True:
         artist, title, album, thumb_b64 = await get_media_session_info()
@@ -253,18 +268,52 @@ async def media_poll_loop():
             track_key = f"{artist}|||{title}"
             if track_key != _last_track_key:
                 _last_track_key = track_key
+                _detection_source = "media_session"
+                _profile_version += 1
                 print(f"Now playing: {artist} - {title} ({album})")
+
+                # Reset fingerprinter on track change
+                fingerprinter.reset()
 
                 # Fetch artist images in a thread (blocking HTTP)
                 artist_imgs = await asyncio.to_thread(fetch_artist_images, artist)
 
+                # Stage 1: immediate update with basic info
                 media_info = {
                     "artist": artist,
                     "title": title,
                     "album": album,
                     "albumArt": thumb_b64,
                     "artistImages": artist_imgs,
+                    "dominantColors": [],
+                    "genres": [],
+                    "moodTags": [],
+                    "preferredVisualizer": "",
+                    "detectionSource": "media_session",
+                    "_profileVersion": _profile_version,
                 }
+
+                # Stage 2: enrich profile (genres, colors, moods)
+                profile = await enrich_artist_profile(
+                    artist_store, artist, artist_imgs
+                )
+
+                if title:
+                    await asyncio.to_thread(
+                        artist_store.update_song, artist, title, album
+                    )
+
+                _profile_version += 1
+                media_info = {
+                    **media_info,
+                    "dominantColors": profile.get("dominantColors", []),
+                    "genres": profile.get("genres", []),
+                    "moodTags": profile.get("moodTags", []),
+                    "preferredVisualizer": profile.get("preferredVisualizer", ""),
+                    "_profileVersion": _profile_version,
+                }
+                print(f"  Genres: {profile.get('genres', [])}")
+                print(f"  Colors: {len(profile.get('dominantColors', []))} extracted")
 
         await asyncio.sleep(3)
 
@@ -291,6 +340,7 @@ async def audio_capture_loop():
             data = await asyncio.to_thread(rec.record, BLOCK_SIZE)
 
             mono = data.mean(axis=1)
+            fingerprinter.feed(mono)
             fft_raw = np.abs(np.fft.rfft(mono))
             fft_binned = log_bin(fft_raw, FFT_BINS)
 
@@ -338,15 +388,75 @@ async def broadcast_loop():
         await asyncio.sleep(1 / FPS)
 
 
+async def fingerprint_poll_loop():
+    """Periodically attempt audio fingerprint identification as fallback."""
+    global media_info, _last_track_key, _profile_version, _detection_source
+
+    while True:
+        await asyncio.sleep(3)
+
+        # Only fingerprint if media session didn't identify the track
+        if media_info.get("artist") and _detection_source == "media_session":
+            continue
+
+        if not fingerprinter.can_query():
+            continue
+
+        result = await asyncio.to_thread(fingerprinter.identify)
+        if result is None:
+            continue
+
+        fp_artist, fp_title, fp_album, fp_mbid = result
+        if not fp_artist and not fp_title:
+            continue
+
+        track_key = f"{fp_artist}|||{fp_title}"
+        if track_key == _last_track_key:
+            continue
+
+        _last_track_key = track_key
+        _detection_source = "fingerprint"
+        _profile_version += 1
+        print(f"Fingerprint identified: {fp_artist} - {fp_title}")
+
+        artist_imgs = await asyncio.to_thread(fetch_artist_images, fp_artist)
+        profile = await enrich_artist_profile(artist_store, fp_artist, artist_imgs)
+
+        if fp_title:
+            await asyncio.to_thread(
+                artist_store.update_song, fp_artist, fp_title, fp_album, fp_mbid
+            )
+
+        _profile_version += 1
+        media_info = {
+            "artist": fp_artist,
+            "title": fp_title,
+            "album": fp_album,
+            "albumArt": media_info.get("albumArt"),
+            "artistImages": artist_imgs,
+            "dominantColors": profile.get("dominantColors", []),
+            "genres": profile.get("genres", []),
+            "moodTags": profile.get("moodTags", []),
+            "preferredVisualizer": profile.get("preferredVisualizer", ""),
+            "detectionSource": "fingerprint",
+            "_profileVersion": _profile_version,
+        }
+
+
 async def main():
     print("Starting audio visualizer backend...")
     print("WebSocket server on ws://localhost:8765")
+    if fingerprinter.enabled:
+        print("Audio fingerprinting: enabled")
+    else:
+        print("Audio fingerprinting: disabled (no ACOUSTID_API_KEY)")
 
     async with serve(handler, "localhost", 8765):
         await asyncio.gather(
             audio_capture_loop(),
             broadcast_loop(),
             media_poll_loop(),
+            fingerprint_poll_loop(),
             asyncio.Future(),
         )
 

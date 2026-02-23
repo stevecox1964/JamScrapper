@@ -7,6 +7,7 @@ export default function useAudioWebSocket(url = 'ws://localhost:8765') {
   const [media, setMedia] = useState(null);
   const reconnectTimer = useRef(null);
   const lastTrackKey = useRef('');
+  const lastProfileVersion = useRef(0);
 
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
@@ -21,11 +22,13 @@ export default function useAudioWebSocket(url = 'ws://localhost:8765') {
       const parsed = JSON.parse(event.data);
       dataRef.current = parsed;
 
-      // Only update media state when track changes (avoid re-renders at 30fps)
+      // Update media state on track change OR profile enrichment update
       if (parsed.media) {
         const key = `${parsed.media.artist}|||${parsed.media.title}`;
-        if (key !== lastTrackKey.current) {
+        const profileVersion = parsed.media._profileVersion || 0;
+        if (key !== lastTrackKey.current || profileVersion !== lastProfileVersion.current) {
           lastTrackKey.current = key;
+          lastProfileVersion.current = profileVersion;
           setMedia(parsed.media);
         }
       }
