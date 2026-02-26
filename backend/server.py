@@ -1,7 +1,11 @@
 import asyncio
 import base64
+import ctypes
+import ctypes.wintypes
 import io
 import json
+from http.server import HTTPServer, BaseHTTPRequestHandler
+import threading
 import numpy as np
 import requests
 import soundcard as sc
@@ -104,17 +108,24 @@ def _split_track_parts(text):
     return [text] if text else []
 
 
-def parse_tab_title(title):
-    """Try to extract artist/title from a browser tab title (e.g. Pandora, YT Music)."""
+def parse_tab_title(title, require_service=False):
+    """Try to extract artist/title from a browser tab title (e.g. Pandora, YT Music).
+    If require_service=True, only returns results if a known streaming suffix was found."""
     if not title:
         return "", ""
 
     # Strip known service suffixes (try longest first so " - YouTube Music" before " - YouTube")
     clean = title.strip()
+    found_service = False
     for suffix in sorted(STREAMING_SUFFIXES, key=len, reverse=True):
         if clean.endswith(suffix):
             clean = clean[: -len(suffix)].strip()
+            found_service = True
             break
+
+    # When called from Chrome title scraper, only proceed if it's a known streaming tab
+    if require_service and not found_service:
+        return "", ""
 
     # If nothing was stripped, still try to parse in case title is "Song - Artist" with no suffix
     if not clean:
@@ -133,6 +144,52 @@ def parse_tab_title(title):
         return "", parts[0]
 
     return "", ""
+
+
+def get_chrome_window_titles():
+    """Read all Chrome window titles using Windows API (no extra deps).
+    Returns a list of window title strings."""
+    titles = []
+    EnumWindows = ctypes.windll.user32.EnumWindows
+    EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.wintypes.BOOL, ctypes.wintypes.HWND, ctypes.wintypes.LPARAM)
+    GetWindowTextW = ctypes.windll.user32.GetWindowTextW
+    GetWindowTextLengthW = ctypes.windll.user32.GetWindowTextLengthW
+    IsWindowVisible = ctypes.windll.user32.IsWindowVisible
+    GetClassNameW = ctypes.windll.user32.GetClassNameW
+
+    def callback(hwnd, _):
+        if not IsWindowVisible(hwnd):
+            return True
+        cls = ctypes.create_unicode_buffer(256)
+        GetClassNameW(hwnd, cls, 256)
+        if cls.value != "Chrome_WidgetWin_1":
+            return True
+        length = GetWindowTextLengthW(hwnd)
+        if length == 0:
+            return True
+        buf = ctypes.create_unicode_buffer(length + 1)
+        GetWindowTextW(hwnd, buf, length + 1)
+        title = buf.value.strip()
+        if title and " - Google Chrome" in title:
+            # Strip " - Google Chrome" suffix
+            title = title.rsplit(" - Google Chrome", 1)[0].strip()
+            titles.append(title)
+        return True
+
+    EnumWindows(EnumWindowsProc(callback), 0)
+    return titles
+
+
+def detect_from_chrome_titles():
+    """Scan Chrome window titles for streaming service tracks.
+    Only matches tabs from known streaming services.
+    Returns (artist, title) or (None, None)."""
+    titles = get_chrome_window_titles()
+    for title in titles:
+        artist, song = parse_tab_title(title, require_service=True)
+        if artist or song:
+            return artist, song
+    return None, None
 
 
 def _extract_from_props(props, best_artist, best_title):
@@ -155,6 +212,9 @@ def _extract_from_props(props, best_artist, best_title):
 
 async def get_media_session_info():
     """Read current 'Now Playing' info from Windows media session."""
+    global _poll_count
+    verbose = _poll_count <= 3 or _poll_count % 10 == 0
+
     try:
         sessions = await MediaManager.request_async()
         best_artist = ""
@@ -166,17 +226,30 @@ async def get_media_session_info():
         # Prefer the current (active) session — the one the user is most likely controlling
         current = sessions.get_current_session()
         if current is not None:
+            app_id = current.source_app_user_model_id
             props = await current.try_get_media_properties_async()
+            raw_artist = (props.artist or "").strip() if props else ""
+            raw_title = (props.title or "").strip() if props else ""
+            raw_album = (props.album_title or "").strip() if props else ""
+            if verbose:
+                print(f"  [WinRT] Current session: app='{app_id}' raw_artist='{raw_artist}' raw_title='{raw_title}' raw_album='{raw_album}'")
             out = _extract_from_props(props, best_artist, best_title)
             if out is not None:
                 best_artist, best_title, best_album, best_props = out[0], out[1], out[2], out[3]
+            elif verbose and (raw_artist or raw_title):
+                print(f"  [WinRT] Filtered out (navigation page or unparseable)")
 
         # Fallback: iterate all sessions if current didn't yield metadata
         if not best_artist and not best_title:
             all_sessions = sessions.get_sessions()
             for i in range(all_sessions.size):
                 session = all_sessions.get_at(i)
+                app_id = session.source_app_user_model_id
                 props = await session.try_get_media_properties_async()
+                raw_artist = (props.artist or "").strip() if props else ""
+                raw_title = (props.title or "").strip() if props else ""
+                if verbose:
+                    print(f"  [WinRT] Session[{i}]: app='{app_id}' raw_artist='{raw_artist}' raw_title='{raw_title}'")
                 out = _extract_from_props(props, best_artist, best_title)
                 if out is not None:
                     best_artist, best_title, best_album, best_props = out[0], out[1], out[2], out[3]
@@ -257,63 +330,95 @@ def fetch_artist_images(artist_name):
     return images
 
 
-async def media_poll_loop():
-    """Poll Windows media session every 3 seconds for track changes."""
+async def _handle_track_detected(artist, title, album, thumb_b64, source):
+    """Common handler for when a track is detected (from any source)."""
     global _last_track_key, media_info, _profile_version, _detection_source
 
+    track_key = f"{artist}|||{title}"
+    if track_key == _last_track_key:
+        return  # Same track, skip
+
+    _last_track_key = track_key
+    _detection_source = source
+    _profile_version += 1
+    print(f"  >> Now playing: {artist} - {title} ({album}) [via {source}]")
+
+    # Reset fingerprinter on track change
+    fingerprinter.reset()
+
+    # Fetch artist images in a thread (blocking HTTP)
+    artist_imgs = await asyncio.to_thread(fetch_artist_images, artist)
+
+    # Stage 1: immediate update with basic info
+    media_info = {
+        "artist": artist,
+        "title": title,
+        "album": album,
+        "albumArt": thumb_b64,
+        "artistImages": artist_imgs,
+        "dominantColors": [],
+        "genres": [],
+        "moodTags": [],
+        "preferredVisualizer": "",
+        "detectionSource": source,
+        "_profileVersion": _profile_version,
+    }
+
+    # Stage 2: enrich profile (genres, colors, moods)
+    profile = await enrich_artist_profile(
+        artist_store, artist, artist_imgs
+    )
+
+    if title:
+        await asyncio.to_thread(
+            artist_store.update_song, artist, title, album
+        )
+
+    _profile_version += 1
+    media_info = {
+        **media_info,
+        "dominantColors": profile.get("dominantColors", []),
+        "genres": profile.get("genres", []),
+        "moodTags": profile.get("moodTags", []),
+        "preferredVisualizer": profile.get("preferredVisualizer", ""),
+        "_profileVersion": _profile_version,
+    }
+    print(f"  Genres: {profile.get('genres', [])}")
+    print(f"  Colors: {len(profile.get('dominantColors', []))} extracted")
+    print(f"  Images: {len(artist_imgs)} found")
+
+
+_poll_count = 0
+
+
+async def media_poll_loop():
+    """Poll Windows media session every 3 seconds for track changes.
+    Falls back to scraping Chrome window titles if media session gives nothing useful."""
+    global _poll_count
+
     while True:
+        _poll_count += 1
+        detected = False
+
+        # --- Source 1: Windows Media Session API ---
         artist, title, album, thumb_b64 = await get_media_session_info()
 
-        if artist is not None:
-            track_key = f"{artist}|||{title}"
-            if track_key != _last_track_key:
-                _last_track_key = track_key
-                _detection_source = "media_session"
-                _profile_version += 1
-                print(f"Now playing: {artist} - {title} ({album})")
+        if _poll_count <= 3 or _poll_count % 10 == 0:
+            print(f"[poll #{_poll_count}] Media session: artist='{artist}' title='{title}' album='{album}'")
 
-                # Reset fingerprinter on track change
-                fingerprinter.reset()
+        if artist is not None and (artist or title):
+            await _handle_track_detected(artist, title, album, thumb_b64, "media_session")
+            detected = True
 
-                # Fetch artist images in a thread (blocking HTTP)
-                artist_imgs = await asyncio.to_thread(fetch_artist_images, artist)
-
-                # Stage 1: immediate update with basic info
-                media_info = {
-                    "artist": artist,
-                    "title": title,
-                    "album": album,
-                    "albumArt": thumb_b64,
-                    "artistImages": artist_imgs,
-                    "dominantColors": [],
-                    "genres": [],
-                    "moodTags": [],
-                    "preferredVisualizer": "",
-                    "detectionSource": "media_session",
-                    "_profileVersion": _profile_version,
-                }
-
-                # Stage 2: enrich profile (genres, colors, moods)
-                profile = await enrich_artist_profile(
-                    artist_store, artist, artist_imgs
+        # --- Source 2: Chrome window title scraper (fallback) ---
+        if not detected:
+            chrome_artist, chrome_title = await asyncio.to_thread(detect_from_chrome_titles)
+            if _poll_count <= 3 or _poll_count % 10 == 0:
+                print(f"[poll #{_poll_count}] Chrome titles: artist='{chrome_artist}' title='{chrome_title}'")
+            if chrome_artist or chrome_title:
+                await _handle_track_detected(
+                    chrome_artist or "", chrome_title or "", "", None, "chrome_tab"
                 )
-
-                if title:
-                    await asyncio.to_thread(
-                        artist_store.update_song, artist, title, album
-                    )
-
-                _profile_version += 1
-                media_info = {
-                    **media_info,
-                    "dominantColors": profile.get("dominantColors", []),
-                    "genres": profile.get("genres", []),
-                    "moodTags": profile.get("moodTags", []),
-                    "preferredVisualizer": profile.get("preferredVisualizer", ""),
-                    "_profileVersion": _profile_version,
-                }
-                print(f"  Genres: {profile.get('genres', [])}")
-                print(f"  Colors: {len(profile.get('dominantColors', []))} extracted")
 
         await asyncio.sleep(3)
 
@@ -443,19 +548,77 @@ async def fingerprint_poll_loop():
         }
 
 
+# ---------- HTTP server for Chrome extension ----------
+
+_extension_track = None  # latest track from extension
+
+
+class TrackHandler(BaseHTTPRequestHandler):
+    def do_POST(self):
+        global _extension_track
+        if self.path == "/track":
+            length = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(length)) if length else {}
+            artist = (body.get("artist") or "").strip()
+            title = (body.get("title") or "").strip()
+            album = (body.get("album") or "").strip()
+            if artist or title:
+                _extension_track = {"artist": artist, "title": title, "album": album}
+                print(f"  [EXT] Received: {artist} - {title}")
+            self.send_response(200)
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+    def do_OPTIONS(self):
+        self.send_response(200)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.end_headers()
+
+    def log_message(self, format, *args):
+        pass  # silence request logs
+
+
+def start_http_server():
+    server = HTTPServer(("localhost", 8766), TrackHandler)
+    server.serve_forever()
+
+
+async def extension_poll_loop():
+    """Check for track info from the Chrome extension."""
+    global _extension_track
+    while True:
+        await asyncio.sleep(2)
+        track = _extension_track
+        if track:
+            _extension_track = None
+            await _handle_track_detected(
+                track["artist"], track["title"], track["album"], None, "extension"
+            )
+
+
 async def main():
     print("Starting audio visualizer backend...")
     print("WebSocket server on ws://localhost:8765")
+    print("Extension HTTP server on http://localhost:8766")
     if fingerprinter.enabled:
         print("Audio fingerprinting: enabled")
     else:
         print("Audio fingerprinting: disabled (no ACOUSTID_API_KEY)")
+
+    # Start HTTP server for extension in a background thread
+    threading.Thread(target=start_http_server, daemon=True).start()
 
     async with serve(handler, "localhost", 8765):
         await asyncio.gather(
             audio_capture_loop(),
             broadcast_loop(),
             media_poll_loop(),
+            extension_poll_loop(),
             fingerprint_poll_loop(),
             asyncio.Future(),
         )

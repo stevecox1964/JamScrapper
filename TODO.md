@@ -3,13 +3,17 @@
 ## Working
 - Audio capture + FFT streaming at 30fps
 - 7 visualizer modes (bars, waveform, radial, tunnel, galaxy, terrain, starfield)
-- Media detection via Windows "Now Playing" (works with Spotify, YouTube Music)
+- Chrome extension captures track info from Pandora, Spotify, YouTube Music, SoundCloud, and more
+- Windows media session fallback for apps that expose "Now Playing" metadata
 - Artist profile system (genres, colors, images, mood tags)
 - Audio fingerprinting module (needs AcoustID API key to activate)
+- One-click `start.bat` launcher
+- Debug panel in UI showing live media detection state
 
 ## Known Limitations
-- Pandora web player doesn't expose song metadata through Chrome's media session
+- Chrome extension must be installed manually (Developer mode, Load unpacked)
 - Audio fingerprinting requires free AcoustID API key + fpcalc install
+- Windows only (WASAPI loopback)
 
 ## Next Up
 - Beat detection (pulse effects on kicks, flash on snares)

@@ -1,0 +1,32 @@
+{
+  "manifest_version": 3,
+  "name": "Audio Visualizer Track Capture",
+  "version": "1.0",
+  "description": "Captures currently playing track info and sends it to the Audio Visualizer backend",
+  "permissions": [],
+  "host_permissions": [
+    "http://localhost:8766/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.pandora.com/*",
+        "*://*.spotify.com/*",
+        "*://music.youtube.com/*",
+        "*://*.youtube.com/*",
+        "*://*.soundcloud.com/*",
+        "*://*.tidal.com/*",
+        "*://*.deezer.com/*",
+        "*://*.music.amazon.com/*",
+        "*://*.music.apple.com/*"
+      ],
+      "js": ["content.js"],
+      "world": "MAIN",
+      "run_at": "document_idle"
+    }
+  ],
+  "icons": {
+    "48": "icon48.png",
+    "128": "icon128.png"
+  }
+}

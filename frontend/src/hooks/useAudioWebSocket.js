@@ -5,9 +5,11 @@ export default function useAudioWebSocket(url = 'ws://localhost:8765') {
   const wsRef = useRef(null);
   const [connected, setConnected] = useState(false);
   const [media, setMedia] = useState(null);
+  const [rawMedia, setRawMedia] = useState(null);
   const reconnectTimer = useRef(null);
   const lastTrackKey = useRef('');
   const lastProfileVersion = useRef(0);
+  const rawThrottle = useRef(0);
 
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
@@ -21,6 +23,13 @@ export default function useAudioWebSocket(url = 'ws://localhost:8765') {
     ws.onmessage = (event) => {
       const parsed = JSON.parse(event.data);
       dataRef.current = parsed;
+
+      // Throttle raw media updates to once per second for debug panel
+      const now = Date.now();
+      if (now - rawThrottle.current > 1000) {
+        rawThrottle.current = now;
+        setRawMedia(parsed.media || null);
+      }
 
       // Update media state on track change OR profile enrichment update
       if (parsed.media) {
@@ -54,5 +63,5 @@ export default function useAudioWebSocket(url = 'ws://localhost:8765') {
     };
   }, [connect]);
 
-  return { dataRef, connected, media };
+  return { dataRef, connected, media, rawMedia };
 }
