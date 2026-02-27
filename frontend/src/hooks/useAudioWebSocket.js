@@ -9,6 +9,8 @@ export default function useAudioWebSocket(url = 'ws://localhost:8765') {
   const reconnectTimer = useRef(null);
   const lastTrackKey = useRef('');
   const lastProfileVersion = useRef(0);
+  const lastHistoryVersion = useRef(0);
+  const [historyVersion, setHistoryVersion] = useState(0);
   const rawThrottle = useRef(0);
 
   const connect = useCallback(() => {
@@ -40,6 +42,11 @@ export default function useAudioWebSocket(url = 'ws://localhost:8765') {
           lastProfileVersion.current = profileVersion;
           setMedia(parsed.media);
         }
+        const hv = parsed.media._historyVersion || 0;
+        if (hv !== lastHistoryVersion.current) {
+          lastHistoryVersion.current = hv;
+          setHistoryVersion(hv);
+        }
       }
     };
 
@@ -63,5 +70,5 @@ export default function useAudioWebSocket(url = 'ws://localhost:8765') {
     };
   }, [connect]);
 
-  return { dataRef, connected, media, rawMedia };
+  return { dataRef, connected, media, rawMedia, historyVersion };
 }

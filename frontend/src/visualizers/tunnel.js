@@ -1,8 +1,7 @@
 import * as THREE from 'three';
 
-export default function init(container, dataRef) {
+export default function init(container, dataRef, mediaManager) {
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x0a0a0f);
   scene.fog = new THREE.FogExp2(0x0a0a0f, 0.015);
 
   const camera = new THREE.PerspectiveCamera(
@@ -13,7 +12,7 @@ export default function init(container, dataRef) {
   );
   camera.position.z = 5;
 
-  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
   renderer.setSize(container.clientWidth, container.clientHeight);
   renderer.setPixelRatio(window.devicePixelRatio);
   container.appendChild(renderer.domElement);
@@ -37,7 +36,7 @@ export default function init(container, dataRef) {
     rings.push(ring);
   }
 
-  // Add ambient particles inside the tunnel
+  // Ambient particles inside the tunnel
   const particleCount = 500;
   const particleGeometry = new THREE.BufferGeometry();
   const particlePositions = new Float32Array(particleCount * 3);
@@ -70,8 +69,42 @@ export default function init(container, dataRef) {
   const particles = new THREE.Points(particleGeometry, particleMaterial);
   scene.add(particles);
 
+  // --- Image panels inside the tunnel ---
+  const PANEL_COUNT = 16;
+  const TUNNEL_RADIUS = 3;
+  const panels = [];
+  const panelBaseData = [];
+
+  for (let i = 0; i < PANEL_COUNT; i++) {
+    const panelGeo = new THREE.PlaneGeometry(1.5, 1.5);
+    const panelMat = new THREE.MeshBasicMaterial({
+      transparent: true,
+      opacity: 0.6,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide,
+    });
+    const panel = new THREE.Mesh(panelGeo, panelMat);
+
+    // Position around the tunnel circumference at staggered depths
+    const angle = (i / PANEL_COUNT) * Math.PI * 2;
+    const depth = -(i / PANEL_COUNT) * RING_COUNT * RING_SPACING;
+    const x = Math.cos(angle) * (TUNNEL_RADIUS - 0.3);
+    const y = Math.sin(angle) * (TUNNEL_RADIUS - 0.3);
+
+    panel.position.set(x, y, depth);
+
+    // Face inward (toward center axis)
+    panel.lookAt(0, 0, depth);
+
+    scene.add(panel);
+    panels.push(panel);
+    panelBaseData.push({ angle, x, y });
+  }
+
   let time = 0;
   let animId;
+  let frameCount = 0;
+  let texturesAssigned = false;
   const totalDepth = RING_COUNT * RING_SPACING;
 
   function animate() {
@@ -80,7 +113,20 @@ export default function init(container, dataRef) {
     const { fft = [], peak = 0 } = data;
 
     time += 0.01;
+    frameCount++;
     const speed = 0.3 + peak * 0.7;
+
+    // Assign textures
+    if (mediaManager && frameCount % 30 === 0) {
+      const textures = mediaManager.getAllTextures();
+      if (textures.length > 0 && !texturesAssigned) {
+        panels.forEach((p, i) => {
+          p.material.map = textures[i % textures.length];
+          p.material.needsUpdate = true;
+        });
+        texturesAssigned = true;
+      }
+    }
 
     // Move camera forward
     camera.position.z -= speed * 0.5;
@@ -106,8 +152,7 @@ export default function init(container, dataRef) {
       const fftValue = fft[fftIndex] || 0;
 
       // Scale ring based on FFT
-      const baseScale = 1;
-      const scale = baseScale + fftValue * 1.5;
+      const scale = 1 + fftValue * 1.5;
       ring.scale.set(scale, scale, 1);
 
       // Color shift based on FFT
@@ -130,12 +175,50 @@ export default function init(container, dataRef) {
     }
     particleGeometry.attributes.position.needsUpdate = true;
 
+    // Update image panels — recycle and animate
+    for (let i = 0; i < PANEL_COUNT; i++) {
+      const panel = panels[i];
+
+      // Recycle panels that pass the camera
+      if (panel.position.z > camera.position.z + 5) {
+        panel.position.z -= totalDepth;
+        // Reassign random texture on recycle
+        if (mediaManager) {
+          const textures = mediaManager.getAllTextures();
+          if (textures.length > 0) {
+            panel.material.map = textures[Math.floor(Math.random() * textures.length)];
+            panel.material.needsUpdate = true;
+          }
+        }
+      }
+
+      // Move panels forward with the tunnel flow
+      panel.position.z += speed * 0.5;
+
+      // FFT-driven opacity based on panel depth relative to camera
+      const distFromCamera = camera.position.z - panel.position.z;
+      const normalizedDist = Math.max(0, Math.min(1, distFromCamera / totalDepth));
+      const fftIndex = Math.floor(normalizedDist * (fft.length - 1));
+      const fftValue = fft[fftIndex] || 0;
+
+      panel.material.opacity = 0.3 + fftValue * 0.6;
+
+      // Gentle rotation around tunnel axis
+      const bd = panelBaseData[i];
+      const rotAngle = bd.angle + time * 0.1;
+      panel.position.x = Math.cos(rotAngle) * (TUNNEL_RADIUS - 0.3);
+      panel.position.y = Math.sin(rotAngle) * (TUNNEL_RADIUS - 0.3);
+
+      // Scale with peak
+      const s = 1 + peak * 0.5;
+      panel.scale.setScalar(s);
+    }
+
     renderer.render(scene, camera);
   }
 
   animate();
 
-  // Handle resize
   function onResize() {
     camera.aspect = container.clientWidth / container.clientHeight;
     camera.updateProjectionMatrix();
@@ -153,6 +236,10 @@ export default function init(container, dataRef) {
       });
       particleGeometry.dispose();
       particleMaterial.dispose();
+      panels.forEach(p => {
+        p.geometry.dispose();
+        p.material.dispose();
+      });
       renderer.dispose();
       if (container.contains(renderer.domElement)) {
         container.removeChild(renderer.domElement);

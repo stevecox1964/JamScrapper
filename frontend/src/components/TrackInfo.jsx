@@ -70,6 +70,21 @@ export default function TrackInfo({ media }) {
               {media.detectionSource === 'fingerprint' ? 'Identified' : 'Now Playing'}
             </span>
           )}
+          {media.youtubeVideoId && (
+            <a
+              href={media.youtubeUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="youtube-link"
+            >
+              <img
+                src={media.youtubeThumbnailUrl}
+                alt="Music video"
+                className="youtube-thumb"
+              />
+              <span className="youtube-label">Music Video</span>
+            </a>
+          )}
         </div>
       </div>
     </>

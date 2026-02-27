@@ -1,8 +1,7 @@
 import * as THREE from 'three';
 
-export default function init(container, dataRef) {
+export default function init(container, dataRef, mediaManager) {
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x0a0a0f);
   scene.fog = new THREE.Fog(0x0a0a0f, 15, 40);
 
   const camera = new THREE.PerspectiveCamera(
@@ -14,7 +13,7 @@ export default function init(container, dataRef) {
   camera.position.set(0, 5, 12);
   camera.lookAt(0, 0, -5);
 
-  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
   renderer.setSize(container.clientWidth, container.clientHeight);
   renderer.setPixelRatio(window.devicePixelRatio);
   container.appendChild(renderer.domElement);
@@ -39,7 +38,7 @@ export default function init(container, dataRef) {
   terrain.position.z = -5;
   scene.add(terrain);
 
-  // Second terrain layer for depth (magenta, behind)
+  // Second terrain layer for depth
   const geometry2 = geometry.clone();
   const material2 = new THREE.MeshBasicMaterial({
     color: 0xff00e5,
@@ -64,17 +63,41 @@ export default function init(container, dataRef) {
   horizon.position.set(0, 0.05, -20);
   scene.add(horizon);
 
-  // Sun/orb in the distance
-  const sunGeometry = new THREE.CircleGeometry(3, 32);
-  const sunMaterial = new THREE.MeshBasicMaterial({
-    color: 0xff6600,
+  // Album art sun sprite (replaces CircleGeometry)
+  const sunMat = new THREE.SpriteMaterial({
     transparent: true,
-    opacity: 0.4,
+    opacity: 0.5,
     blending: THREE.AdditiveBlending,
+    color: 0xff6600,
   });
-  const sun = new THREE.Mesh(sunGeometry, sunMaterial);
+  const sun = new THREE.Sprite(sunMat);
+  sun.scale.set(6, 6, 1);
   sun.position.set(0, 3, -25);
   scene.add(sun);
+
+  // Floating billboard sprites above the terrain
+  const BILLBOARD_COUNT = 10;
+  const billboards = [];
+  const billboardBaseData = [];
+
+  for (let i = 0; i < BILLBOARD_COUNT; i++) {
+    const mat = new THREE.SpriteMaterial({
+      transparent: true,
+      opacity: 0.6,
+      blending: THREE.AdditiveBlending,
+    });
+    const sprite = new THREE.Sprite(mat);
+    sprite.scale.set(1.5, 1.5, 1);
+
+    // Scatter across the terrain
+    const x = (Math.random() - 0.5) * WIDTH * 0.7;
+    const z = -5 + (Math.random() - 0.5) * DEPTH * 0.5;
+    sprite.position.set(x, 3, z);
+
+    scene.add(sprite);
+    billboards.push(sprite);
+    billboardBaseData.push({ x, z });
+  }
 
   // Store base vertex positions
   const positionAttr = geometry.attributes.position;
@@ -88,6 +111,8 @@ export default function init(container, dataRef) {
   let time = 0;
   let animId;
   let scrollOffset = 0;
+  let frameCount = 0;
+  let texturesAssigned = false;
 
   function animate() {
     animId = requestAnimationFrame(animate);
@@ -95,26 +120,46 @@ export default function init(container, dataRef) {
     const { fft = [], peak = 0 } = data;
 
     time += 0.01;
+    frameCount++;
     scrollOffset += 0.03 + peak * 0.08;
+
+    // Assign textures
+    if (mediaManager && frameCount % 30 === 0) {
+      const textures = mediaManager.getAllTextures();
+      const albumTex = mediaManager.albumArtTexture;
+      if (textures.length > 0 && !texturesAssigned) {
+        // Sun gets album art
+        if (albumTex) {
+          sunMat.map = albumTex;
+          sunMat.color.setHex(0xffffff);
+          sunMat.needsUpdate = true;
+        } else {
+          sunMat.map = textures[0];
+          sunMat.color.setHex(0xffffff);
+          sunMat.needsUpdate = true;
+        }
+        // Billboards get various textures
+        billboards.forEach((s, i) => {
+          s.material.map = textures[i % textures.length];
+          s.material.needsUpdate = true;
+        });
+        texturesAssigned = true;
+      }
+    }
 
     // Update vertex heights based on FFT
     for (let i = 0; i < vertexCount; i++) {
       const x = positionAttr.getX(i);
       const z = positionAttr.getZ(i);
 
-      // Map X position to FFT bin
       const normalizedX = (x + WIDTH / 2) / WIDTH;
       const fftIndex = Math.floor(normalizedX * (fft.length - 1));
       const fftValue = fft[fftIndex] || 0;
 
-      // Scrolling wave effect
       const wave = Math.sin((z + scrollOffset) * 0.5) * 0.3;
-
-      // Height = FFT value + wave + noise
       const noise = Math.sin(x * 0.8 + time) * Math.cos(z * 0.5 + time * 0.7) * 0.2;
       const height = fftValue * 3 + wave + noise;
 
-      // Fade height at edges for smooth look
       const edgeFade = 1 - Math.pow(Math.abs(normalizedX - 0.5) * 2, 3);
       positionAttr.setY(i, baseY[i] + height * edgeFade);
       positionAttr2.setY(i, baseY[i] + height * edgeFade * 0.6);
@@ -130,8 +175,27 @@ export default function init(container, dataRef) {
     material.opacity = 0.4 + peak * 0.3;
 
     // Pulse sun
-    sunMaterial.opacity = 0.3 + peak * 0.3;
-    sun.scale.setScalar(1 + peak * 0.3);
+    sunMat.opacity = 0.3 + peak * 0.4;
+    sun.scale.setScalar(5 + peak * 2);
+
+    // Animate billboards — y tracks local terrain height + offset
+    for (let i = 0; i < BILLBOARD_COUNT; i++) {
+      const sprite = billboards[i];
+      const bd = billboardBaseData[i];
+
+      // Sample terrain height at billboard's x/z position
+      const normalizedX = (bd.x + WIDTH / 2) / WIDTH;
+      const fftIndex = Math.floor(normalizedX * (fft.length - 1));
+      const fftValue = fft[fftIndex] || 0;
+      const terrainHeight = fftValue * 3;
+
+      sprite.position.y = terrainHeight + 2 + Math.sin(time * 1.5 + i) * 0.3;
+
+      // Scale with peak
+      const s = 1.2 + peak * 0.8;
+      sprite.scale.setScalar(s);
+      sprite.material.opacity = 0.4 + peak * 0.4;
+    }
 
     // Subtle camera movement
     camera.position.x = Math.sin(time * 0.2) * 1;
@@ -159,8 +223,8 @@ export default function init(container, dataRef) {
       material2.dispose();
       horizonGeometry.dispose();
       horizonMaterial.dispose();
-      sunGeometry.dispose();
-      sunMaterial.dispose();
+      sunMat.dispose();
+      billboards.forEach(s => s.material.dispose());
       renderer.dispose();
       if (container.contains(renderer.domElement)) {
         container.removeChild(renderer.domElement);

@@ -125,19 +125,48 @@ body {
   flex: 1;
   display: block;
   width: 100%;
+  position: relative;
+  z-index: 2;
+  background: transparent;
 }
 
 .three-container {
   flex: 1;
   width: 100%;
   overflow: hidden;
+  position: relative;
+  z-index: 2;
+  background: transparent;
+}
+
+/* YouTube video background */
+.youtube-bg {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.youtube-bg iframe {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 100vw;
+  height: 56.25vw;
+  min-height: 100vh;
+  min-width: 177.78vh;
+  opacity: 0.4;
+  transition: opacity 1.5s ease;
+  border: none;
 }
 
 /* Artist background image */
 .artist-bg {
   position: fixed;
   inset: 0;
-  z-index: 0;
+  z-index: 1;
   background-size: cover;
   background-position: center;
   opacity: 0.12;
@@ -278,4 +307,101 @@ body {
   color: #666;
   display: inline-block;
   width: 70px;
+}
+
+/* YouTube link in track info */
+.youtube-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  text-decoration: none;
+  opacity: 0.8;
+  transition: opacity 0.2s;
+}
+
+.youtube-link:hover {
+  opacity: 1;
+}
+
+.youtube-thumb {
+  width: 64px;
+  height: 36px;
+  border-radius: 4px;
+  object-fit: cover;
+}
+
+.youtube-label {
+  font-size: 9px;
+  color: #ff4444;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* Song history panel */
+.history-panel {
+  position: fixed;
+  top: 56px;
+  left: 12px;
+  z-index: 30;
+  background: rgba(0, 0, 0, 0.85);
+  backdrop-filter: blur(10px);
+  border: 1px solid #333;
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 11px;
+  max-height: 400px;
+  width: 340px;
+  overflow-y: auto;
+}
+
+.history-title {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--accent);
+  margin-bottom: 6px;
+}
+
+.history-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.history-entry {
+  display: flex;
+  gap: 8px;
+  padding: 4px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  align-items: baseline;
+}
+
+.history-time {
+  color: #555;
+  white-space: nowrap;
+  font-family: 'Consolas', 'Fira Code', monospace;
+  font-size: 10px;
+  flex-shrink: 0;
+}
+
+.history-track {
+  color: #ccc;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-source {
+  color: #444;
+  font-size: 9px;
+  flex-shrink: 0;
+}
+
+.history-empty {
+  color: #555;
+  font-style: italic;
+  padding: 8px 0;
 }

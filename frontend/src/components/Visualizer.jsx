@@ -9,7 +9,7 @@ const renderers = {
   radial: renderRadial,
 };
 
-export default function Visualizer({ mode, dataRef }) {
+export default function Visualizer({ mode, dataRef, mediaManager }) {
   const canvasRef = useRef(null);
 
   useEffect(() => {
@@ -27,9 +27,10 @@ export default function Visualizer({ mode, dataRef }) {
 
       const data = dataRef.current;
       const renderFn = renderers[mode];
+      const mediaAssets = mediaManager?.current?.getImages() || {};
 
       if (renderFn) {
-        renderFn(ctx, data, canvas);
+        renderFn(ctx, data, canvas, mediaAssets);
       }
 
       animId = requestAnimationFrame(render);

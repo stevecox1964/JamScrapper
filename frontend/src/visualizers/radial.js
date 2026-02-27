@@ -1,21 +1,35 @@
-export default function renderRadial(ctx, data, canvas) {
+export default function renderRadial(ctx, data, canvas, mediaAssets) {
   const w = canvas.clientWidth;
   const h = canvas.clientHeight;
   const { fft, peak } = data;
 
   if (!fft || fft.length === 0) return;
 
-  // Dark background
-  ctx.fillStyle = '#0a0a0f';
+  // Semi-transparent background for video bleed
+  ctx.fillStyle = 'rgba(10, 10, 15, 0.85)';
   ctx.fillRect(0, 0, w, h);
 
   const centerX = w / 2;
   const centerY = h / 2;
   const minDim = Math.min(w, h);
-  const baseRadius = minDim * 0.15 + (peak || 0) * minDim * 0.03; // Breathing effect
+  const baseRadius = minDim * 0.15 + (peak || 0) * minDim * 0.03;
   const maxExtension = minDim * 0.3;
+  const now = performance.now() * 0.001;
 
   const barCount = fft.length;
+
+  // Draw album art clipped to circle at center
+  const albumArt = mediaAssets?.albumArt;
+  if (albumArt) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, baseRadius, 0, Math.PI * 2);
+    ctx.clip();
+    const artSize = baseRadius * 2;
+    ctx.globalAlpha = 0.6 + (peak || 0) * 0.3;
+    ctx.drawImage(albumArt, centerX - artSize / 2, centerY - artSize / 2, artSize, artSize);
+    ctx.restore();
+  }
 
   // Draw radial lines with glow
   ctx.save();
@@ -35,7 +49,6 @@ export default function renderRadial(ctx, data, canvas) {
 
     points.push({ x: x2, y: y2 });
 
-    // Hue rotates around the circle
     const hue = (i / barCount) * 360;
     const color = `hsl(${hue}, 100%, 60%)`;
 
@@ -67,7 +80,6 @@ export default function renderRadial(ctx, data, canvas) {
       ctx.quadraticCurveTo(prev.x, prev.y, cpx, cpy);
     }
 
-    // Close the path
     const last = points[points.length - 1];
     const first = points[0];
     const cpx = (last.x + first.x) / 2;
@@ -79,7 +91,7 @@ export default function renderRadial(ctx, data, canvas) {
     ctx.restore();
   }
 
-  // Draw inner circle with radial gradient
+  // Draw inner circle with radial gradient (overlay on top of album art)
   const innerGradient = ctx.createRadialGradient(
     centerX, centerY, 0,
     centerX, centerY, baseRadius
@@ -99,4 +111,48 @@ export default function renderRadial(ctx, data, canvas) {
   ctx.beginPath();
   ctx.arc(centerX, centerY, baseRadius, 0, Math.PI * 2);
   ctx.stroke();
+
+  // Orbiting artist images
+  const artists = mediaAssets?.artists;
+  if (artists && artists.length > 0) {
+    const orbitCount = Math.min(artists.length, 8);
+    const orbitBaseRadius = baseRadius * 1.8;
+
+    for (let i = 0; i < orbitCount; i++) {
+      const img = artists[i % artists.length];
+      const angleOffset = (i / orbitCount) * Math.PI * 2;
+      const orbitAngle = now * 0.4 + angleOffset;
+
+      // Modulate orbit radius with FFT
+      const fftIdx = Math.floor((i / orbitCount) * (fft.length - 1));
+      const fftVal = fft[fftIdx] || 0;
+      const radius = orbitBaseRadius + fftVal * maxExtension * 0.4;
+
+      const imgX = centerX + Math.cos(orbitAngle) * radius;
+      const imgY = centerY + Math.sin(orbitAngle) * radius;
+      const imgSize = 30 + (peak || 0) * 15;
+
+      ctx.save();
+      ctx.globalAlpha = 0.5 + (peak || 0) * 0.3;
+      ctx.translate(imgX, imgY);
+      ctx.rotate(orbitAngle);
+      ctx.drawImage(img, -imgSize / 2, -imgSize / 2, imgSize, imgSize);
+      ctx.restore();
+    }
+  }
+
+  // YouTube thumbnail orbiting at outer ring
+  const ytThumb = mediaAssets?.ytThumb;
+  if (ytThumb) {
+    const ytAngle = now * 0.2;
+    const ytRadius = baseRadius * 2.5;
+    const ytX = centerX + Math.cos(ytAngle) * ytRadius;
+    const ytY = centerY + Math.sin(ytAngle) * ytRadius;
+    const ytSize = 45 + (peak || 0) * 10;
+
+    ctx.save();
+    ctx.globalAlpha = 0.3 + (peak || 0) * 0.2;
+    ctx.drawImage(ytThumb, ytX - ytSize / 2, ytY - ytSize / 2, ytSize, ytSize);
+    ctx.restore();
+  }
 }

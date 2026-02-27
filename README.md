@@ -13,18 +13,22 @@ The backend also identifies what's playing via three methods:
 
 When an artist is detected, the system fetches images, extracts dominant colors, pulls genre tags from MusicBrainz, and builds a persistent visual profile stored as JSON. Next time that artist plays, the profile loads instantly.
 
+Every visualizer is infused with media — artist images, album art, and YouTube thumbnails replace plain geometric shapes. A muted YouTube music video plays as a background layer behind all modes.
+
 ## Visualizer Modes
 
 **2D (Canvas)**
-- **Bars** — Classic frequency spectrum bar graph
-- **Waveform** — Real-time audio waveform display
-- **Radial** — Circular frequency visualization
+- **Bars** — Frequency spectrum with album art revealed through each bar, artist image floating in background
+- **Waveform** — Audio waveform with artist images riding the curve, bobbing with the music
+- **Radial** — Circular frequency display with album art at center, artist images orbiting around it
 
 **3D (Three.js)**
-- **Tunnel** — Fly-through tunnel that pulses with the beat
-- **Galaxy** — Particle galaxy reacting to audio
-- **Terrain** — Terrain mesh driven by frequency data
-- **Starfield** — Star particles responding to the music
+- **Tunnel** — Fly-through tunnel with image panels rotating around the walls
+- **Galaxy** — Particle galaxy with album art as the pulsing core, image chips in spiral arms
+- **Terrain** — Wireframe terrain with album art sun and floating image billboards above the surface
+- **Starfield** — Stars flying past camera with image cards streaking through the field
+
+All modes render with transparent backgrounds so the muted YouTube music video bleeds through behind everything.
 
 ## Tech Stack
 
@@ -33,9 +37,12 @@ When an artist is detected, the system fetches images, extracts dominant colors,
 | Audio Capture | Python, `soundcard` (WASAPI loopback) |
 | Signal Processing | `numpy` (FFT, log-binning) |
 | Transport | WebSocket at ~30fps |
-| Media Detection | Chrome extension (DOM scraping), `winrt` (Windows "Now Playing") |
+| Media Detection | Chrome extension (DOM scraping + MediaSession), `winrt` (Windows "Now Playing") |
 | Audio Fingerprinting | `pyacoustid` / Chromaprint (optional) |
 | Artist Profiles | MusicBrainz genres, TheAudioDB/Wikipedia images, Pillow color extraction |
+| YouTube Search | `yt-dlp` (search + thumbnail caching) |
+| Video Background | YouTube IFrame API (muted, looping) |
+| Media Textures | Three.js textures + Canvas image rendering from artist/album/YouTube media |
 | Frontend | React 19, Vite |
 | 3D Rendering | Three.js |
 
@@ -92,6 +99,7 @@ Opens at `http://localhost:5173`.
 2. Play audio on any supported streaming site (Pandora, Spotify, YouTube Music, etc.)
 3. Track info appears in the bottom-left overlay and debug panel
 4. Pick a visualizer mode from the header selector
+5. Toggle song history panel from the header
 
 ### Optional: Audio Fingerprinting
 
@@ -110,7 +118,11 @@ backend/
   server.py          — Audio capture, FFT, WebSocket server, media polling, extension HTTP endpoint
   artist_store.py    — Artist profile persistence, color extraction, genre mapping
   fingerprinter.py   — Audio fingerprinting via AcoustID (optional)
+  history_store.py   — Song play history logging (JSON persistence)
+  media_cache.py     — YouTube video search and thumbnail caching via yt-dlp
   data/artists/      — Cached artist profiles (auto-generated)
+  data/history.json  — Play history log (auto-generated)
+  data/media_cache/  — Cached YouTube thumbnails (auto-generated)
 extension/
   manifest.json      — Chrome extension manifest (Manifest V3)
   content.js         — DOM scraper + MediaSession interceptor for streaming sites
@@ -118,12 +130,16 @@ frontend/
   src/
     App.jsx          — Main app, mode switching, debug panel
     components/
-      Visualizer.jsx      — 2D canvas visualizers
-      ThreeVisualizer.jsx — 3D Three.js visualizers
-      TrackInfo.jsx       — Track info overlay with genres + colors
+      Visualizer.jsx      — 2D canvas visualizers (passes media assets)
+      ThreeVisualizer.jsx — 3D Three.js visualizers (passes texture manager)
+      TrackInfo.jsx       — Track info overlay with genres, colors, YouTube link
       ModeSelector.jsx    — Mode picker UI
+      YouTubeBackground.jsx — Muted YouTube video background (IFrame API)
+      SongHistory.jsx     — Collapsible play history panel
     hooks/
-      useAudioWebSocket.js — WebSocket data hook
+      useAudioWebSocket.js — WebSocket data hook with media change detection
+    utils/
+      mediaTextureManager.js — Shared image/texture loading for all visualizers
     visualizers/           — Individual visualizer implementations
 start.bat              — One-click launcher for backend + frontend
 ```

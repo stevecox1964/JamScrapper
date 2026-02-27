@@ -11,7 +11,7 @@ const initializers = {
   starfield: initStarfield,
 };
 
-export default function ThreeVisualizer({ mode, dataRef }) {
+export default function ThreeVisualizer({ mode, dataRef, mediaManager }) {
   const containerRef = useRef(null);
 
   useEffect(() => {
@@ -21,7 +21,7 @@ export default function ThreeVisualizer({ mode, dataRef }) {
     const initFn = initializers[mode];
     if (!initFn) return;
 
-    const { cleanup } = initFn(container, dataRef);
+    const { cleanup } = initFn(container, dataRef, mediaManager?.current);
 
     return () => {
       cleanup();

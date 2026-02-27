@@ -5,11 +5,12 @@ let lastSent = "";
 function send(artist, title, album, artwork) {
   const key = `${artist}|||${title}`;
   if (key === lastSent || (!artist && !title)) return;
-  lastSent = key;
   fetch(BACKEND, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ artist, title, album, artwork }),
+  }).then(() => {
+    lastSent = key; // Only mark sent on success so we retry if backend was down
   }).catch(() => {});
 }
 
@@ -26,6 +27,14 @@ try {
       get() { return desc.get.call(this); },
       configurable: true,
     });
+  }
+} catch (e) {}
+
+// 1b. Read existing metadata on load (in case it was set before our intercept)
+try {
+  const existing = navigator.mediaSession?.metadata;
+  if (existing) {
+    send(existing.artist, existing.title, existing.album, existing.artwork?.[0]?.src);
   }
 } catch (e) {}
 

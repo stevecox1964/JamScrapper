@@ -5,6 +5,7 @@ import ctypes.wintypes
 import io
 import json
 from http.server import HTTPServer, BaseHTTPRequestHandler
+from pathlib import Path
 import threading
 import numpy as np
 import requests
@@ -17,6 +18,8 @@ from winrt.windows.storage.streams import Buffer, InputStreamOptions
 
 from fingerprinter import AudioFingerprinter, load_acoustid_key
 from artist_store import ArtistStore, enrich_artist_profile
+from history_store import HistoryStore
+from media_cache import MediaCache
 
 SAMPLE_RATE = 44100
 BLOCK_SIZE = 2048
@@ -71,15 +74,23 @@ media_info = {
     "preferredVisualizer": "",
     "detectionSource": "",
     "_profileVersion": 0,
+    "_historyVersion": 0,
+    "youtubeVideoId": "",
+    "youtubeTitle": "",
+    "youtubeUrl": "",
+    "youtubeThumbnailUrl": "",
+    "youtubeDuration": 0,
 }
 _last_track_key = ""
 _profile_version = 0
 _detection_source = ""
 _image_cache = {}  # artist -> image list
 
-# Artist profile storage and audio fingerprinter
+# Artist profile storage, audio fingerprinter, history, and media cache
 artist_store = ArtistStore()
 fingerprinter = AudioFingerprinter(api_key=load_acoustid_key())
+history_store = HistoryStore()
+media_cache = MediaCache()
 
 
 # Known streaming services and their tab title patterns
@@ -343,6 +354,9 @@ async def _handle_track_detected(artist, title, album, thumb_b64, source):
     _profile_version += 1
     print(f"  >> Now playing: {artist} - {title} ({album}) [via {source}]")
 
+    # Log to play history
+    history_store.add(artist, title, album, source)
+
     # Reset fingerprinter on track change
     fingerprinter.reset()
 
@@ -362,6 +376,12 @@ async def _handle_track_detected(artist, title, album, thumb_b64, source):
         "preferredVisualizer": "",
         "detectionSource": source,
         "_profileVersion": _profile_version,
+        "_historyVersion": media_info.get("_historyVersion", 0) + 1,
+        "youtubeVideoId": "",
+        "youtubeTitle": "",
+        "youtubeUrl": "",
+        "youtubeThumbnailUrl": "",
+        "youtubeDuration": 0,
     }
 
     # Stage 2: enrich profile (genres, colors, moods)
@@ -386,6 +406,31 @@ async def _handle_track_detected(artist, title, album, thumb_b64, source):
     print(f"  Genres: {profile.get('genres', [])}")
     print(f"  Colors: {len(profile.get('dominantColors', []))} extracted")
     print(f"  Images: {len(artist_imgs)} found")
+
+    # Stage 3: YouTube search (non-blocking)
+    if artist and title:
+        asyncio.create_task(_fetch_youtube_data(artist, title))
+
+
+async def _fetch_youtube_data(artist, title):
+    """Search YouTube and update media_info with video metadata."""
+    global media_info, _profile_version
+    try:
+        result = await asyncio.to_thread(media_cache.search_youtube, artist, title)
+        if result:
+            _profile_version += 1
+            media_info = {
+                **media_info,
+                "youtubeVideoId": result.get("videoId", ""),
+                "youtubeTitle": result.get("videoTitle", ""),
+                "youtubeUrl": result.get("videoUrl", ""),
+                "youtubeThumbnailUrl": f"http://localhost:8766/media/thumbnails/{result['videoId']}.jpg",
+                "youtubeDuration": result.get("duration", 0),
+                "_profileVersion": _profile_version,
+            }
+            print(f"  YouTube: {result.get('videoTitle', '')} ({result.get('videoId', '')})")
+    except Exception as e:
+        print(f"  YouTube fetch error: {e}")
 
 
 _poll_count = 0
@@ -524,6 +569,8 @@ async def fingerprint_poll_loop():
         _profile_version += 1
         print(f"Fingerprint identified: {fp_artist} - {fp_title}")
 
+        history_store.add(fp_artist, fp_title, fp_album, "fingerprint")
+
         artist_imgs = await asyncio.to_thread(fetch_artist_images, fp_artist)
         profile = await enrich_artist_profile(artist_store, fp_artist, artist_imgs)
 
@@ -545,7 +592,16 @@ async def fingerprint_poll_loop():
             "preferredVisualizer": profile.get("preferredVisualizer", ""),
             "detectionSource": "fingerprint",
             "_profileVersion": _profile_version,
+            "_historyVersion": media_info.get("_historyVersion", 0) + 1,
+            "youtubeVideoId": "",
+            "youtubeTitle": "",
+            "youtubeUrl": "",
+            "youtubeThumbnailUrl": "",
+            "youtubeDuration": 0,
         }
+
+        if fp_artist and fp_title:
+            asyncio.create_task(_fetch_youtube_data(fp_artist, fp_title))
 
 
 # ---------- HTTP server for Chrome extension ----------
@@ -554,6 +610,32 @@ _extension_track = None  # latest track from extension
 
 
 class TrackHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == "/history":
+            data = json.dumps(history_store.get_recent(50))
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(data.encode())
+        elif self.path.startswith("/media/"):
+            relative = self.path[len("/media/"):]
+            file_path = Path(__file__).parent / "data" / "media_cache" / relative
+            if file_path.exists() and file_path.is_file():
+                ct = "image/jpeg" if file_path.suffix == ".jpg" else "application/octet-stream"
+                self.send_response(200)
+                self.send_header("Content-Type", ct)
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.send_header("Cache-Control", "public, max-age=86400")
+                self.end_headers()
+                self.wfile.write(file_path.read_bytes())
+            else:
+                self.send_response(404)
+                self.end_headers()
+        else:
+            self.send_response(404)
+            self.end_headers()
+
     def do_POST(self):
         global _extension_track
         if self.path == "/track":
@@ -592,13 +674,13 @@ async def extension_poll_loop():
     """Check for track info from the Chrome extension."""
     global _extension_track
     while True:
-        await asyncio.sleep(2)
         track = _extension_track
         if track:
             _extension_track = None
             await _handle_track_detected(
                 track["artist"], track["title"], track["album"], None, "extension"
             )
+        await asyncio.sleep(1)
 
 
 async def main():
