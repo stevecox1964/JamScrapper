@@ -157,7 +157,7 @@ body {
   height: 56.25vw;
   min-height: 100vh;
   min-width: 177.78vh;
-  opacity: 0.4;
+  opacity: 0.85;
   transition: opacity 1.5s ease;
   border: none;
 }

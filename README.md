@@ -150,8 +150,9 @@ start.bat              — One-click launcher for backend + frontend
 - Keyboard shortcuts to cycle modes
 - Fullscreen toggle
 - Smooth transitions between modes
-- More visualizer modes
+- Bass energy driving camera shake / color intensity in 3D modes
 - Plugin architecture for community visualizers
+- More visualizer modes (spectrum waterfall, DNA helix, etc.)
 - Song-specific choreographed animations
 
 ## Supported Streaming Sites

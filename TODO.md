@@ -3,9 +3,13 @@
 ## Working
 - Audio capture + FFT streaming at 30fps
 - 7 visualizer modes (bars, waveform, radial, tunnel, galaxy, terrain, starfield)
+- All visualizers infused with artist images, album art, and YouTube thumbnails
+- YouTube music video playing as muted background behind all modes
 - Chrome extension captures track info from Pandora, Spotify, YouTube Music, SoundCloud, and more
 - Windows media session fallback for apps that expose "Now Playing" metadata
 - Artist profile system (genres, colors, images, mood tags)
+- Song history panel with play log
+- Track info overlay with album art, genres, and YouTube link
 - Audio fingerprinting module (needs AcoustID API key to activate)
 - One-click `start.bat` launcher
 - Debug panel in UI showing live media detection state
@@ -26,4 +30,3 @@
 - Plugin architecture for drop-in visualizer engines
 - Song-specific choreographed animations
 - More visualizer modes (spectrum waterfall, DNA helix, etc.)
-- Artist imagery integrated into 3D visualizers
