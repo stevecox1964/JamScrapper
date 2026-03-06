@@ -2,11 +2,13 @@ import { useRef, useEffect } from 'react';
 import renderBars from '../visualizers/frequencyBars';
 import renderWaveform from '../visualizers/waveform';
 import renderRadial from '../visualizers/radial';
+import renderVideoOnly from '../visualizers/videoOnly';
 
 const renderers = {
   bars: renderBars,
   waveform: renderWaveform,
   radial: renderRadial,
+  video: renderVideoOnly,
 };
 
 export default function Visualizer({ mode, dataRef, mediaManager }) {

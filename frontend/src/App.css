@@ -162,6 +162,15 @@ body {
   border: none;
 }
 
+/* Video-only mode — full opacity video, hide canvas */
+.video-mode .youtube-bg iframe {
+  opacity: 1;
+}
+
+.video-mode .visualizer-canvas {
+  pointer-events: none;
+}
+
 /* Artist background image */
 .artist-bg {
   position: fixed;

@@ -12,7 +12,7 @@ import './App.css';
 const THREE_D_MODES = new Set(['tunnel', 'galaxy', 'terrain', 'starfield']);
 
 export default function App() {
-  const [mode, setMode] = useState('bars');
+  const [mode, setMode] = useState('video');
   const [showDebug, setShowDebug] = useState(true);
   const [showHistory, setShowHistory] = useState(false);
   const { dataRef, connected, media, rawMedia, historyVersion } = useAudioWebSocket('ws://localhost:8765');
@@ -29,7 +29,7 @@ export default function App() {
   const is3D = THREE_D_MODES.has(mode);
 
   return (
-    <div className="app">
+    <div className={`app${mode === 'video' ? ' video-mode' : ''}`}>
       <div className="header">
         <ModeSelector mode={mode} setMode={setMode} />
         <div className={`status ${connected ? 'connected' : 'disconnected'}`}>

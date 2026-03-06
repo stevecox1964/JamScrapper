@@ -1,4 +1,5 @@
 const modes2D = [
+  { id: 'video', label: 'Video' },
   { id: 'bars', label: 'Bars' },
   { id: 'waveform', label: 'Waveform' },
   { id: 'radial', label: 'Radial' },
