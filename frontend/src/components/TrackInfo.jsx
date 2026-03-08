@@ -11,7 +11,6 @@ export default function TrackInfo({ media }) {
     }
   }, [media?.artist, media?.title]);
 
-  // Cycle through artist images every 8 seconds
   useEffect(() => {
     if (!media?.artistImages?.length || media.artistImages.length <= 1) return;
     const interval = setInterval(() => {
@@ -24,6 +23,7 @@ export default function TrackInfo({ media }) {
 
   const artistImg = media.artistImages?.[imgIndex];
   const albumArt = media.albumArt;
+  const dl = media.videoDownloadStatus;
 
   const accentColor = media.dominantColors?.[0]
     ? `rgb(${media.dominantColors[0].join(',')})`
@@ -31,7 +31,6 @@ export default function TrackInfo({ media }) {
 
   return (
     <>
-      {/* Background artist image */}
       {artistImg && (
         <div
           className="artist-bg"
@@ -39,7 +38,6 @@ export default function TrackInfo({ media }) {
         />
       )}
 
-      {/* Track info overlay */}
       <div
         className={`track-info ${visible ? 'visible' : ''}`}
         style={accentColor ? { borderColor: `${accentColor}33` } : undefined}
@@ -70,20 +68,21 @@ export default function TrackInfo({ media }) {
               {media.detectionSource === 'fingerprint' ? 'Identified' : 'Now Playing'}
             </span>
           )}
-          {media.youtubeVideoId && (
-            <a
-              href={media.youtubeUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="youtube-link"
-            >
-              <img
-                src={media.youtubeThumbnailUrl}
-                alt="Music video"
-                className="youtube-thumb"
-              />
-              <span className="youtube-label">Music Video</span>
-            </a>
+          {dl && dl.state === 'downloading' && (
+            <div className="download-status">
+              <div className="download-bar">
+                <div
+                  className="download-fill"
+                  style={{ width: `${dl.progress}%` }}
+                />
+              </div>
+              <span className="download-text">Saving {dl.progress}%</span>
+            </div>
+          )}
+          {dl && dl.state === 'completed' && (
+            <span className="download-complete">
+              Saved ({dl.fileSizeMB?.toFixed(1)} MB)
+            </span>
           )}
         </div>
       </div>

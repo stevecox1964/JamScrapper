@@ -13,7 +13,26 @@ The backend also identifies what's playing via three methods:
 
 When an artist is detected, the system fetches images, extracts dominant colors, pulls genre tags from MusicBrainz, and builds a persistent visual profile stored as JSON. Next time that artist plays, the profile loads instantly.
 
-Every visualizer is infused with media — artist images, album art, and YouTube thumbnails replace plain geometric shapes. A muted YouTube music video plays as a background layer behind all modes.
+Every visualizer is infused with media — artist images, album art, and YouTube thumbnails replace plain geometric shapes. A YouTube music video plays as a background layer behind all modes, starting instantly via YouTube's IFrame API. Videos are automatically saved locally in the background as they play. Once a video finishes downloading, playback seamlessly crossfades to the local copy — no buffering, no interruptions.
+
+## Video Pipeline
+
+When a track is detected, the backend searches YouTube in parallel with artist enrichment so the video starts as fast as possible:
+
+1. **Instant playback** — YouTube IFrame loads and plays the music video immediately (muted)
+2. **Background save** — `yt-dlp` downloads the MP4 in the background (up to 1080p)
+3. **Seamless switch** — Once the download completes, playback crossfades to the local file
+4. **Cached for next time** — If the same song plays again, the local video loads instantly
+
+Download progress is shown in the track info overlay. Videos are stored in `backend/data/media_cache/videos/`.
+
+## Playlist System
+
+Create offline playlists from downloaded videos:
+- Add currently playing tracks to any playlist
+- Create, delete, and manage multiple playlists
+- Track metadata (artist, title, duration) stored alongside video references
+- All playlist data persists as JSON in `backend/data/playlists.json`
 
 ## Visualizer Modes
 
@@ -28,7 +47,7 @@ Every visualizer is infused with media — artist images, album art, and YouTube
 - **Terrain** — Wireframe terrain with album art sun and floating image billboards above the surface
 - **Starfield** — Stars flying past camera with image cards streaking through the field
 
-All modes render with transparent backgrounds so the muted YouTube music video bleeds through behind everything.
+All modes render with transparent backgrounds so the YouTube music video bleeds through behind everything.
 
 ## Tech Stack
 
@@ -41,8 +60,10 @@ All modes render with transparent backgrounds so the muted YouTube music video b
 | Audio Fingerprinting | `pyacoustid` / Chromaprint (optional) |
 | Artist Profiles | MusicBrainz genres, TheAudioDB/Wikipedia images, Pillow color extraction |
 | YouTube Search | `yt-dlp` (search + thumbnail caching) |
-| Video Background | YouTube IFrame API (muted, looping) |
+| Video Download | `yt-dlp` (MP4 up to 1080p, progress tracking) |
+| Video Background | YouTube IFrame API (instant playback) → local MP4 (crossfade on download complete) |
 | Media Textures | Three.js textures + Canvas image rendering from artist/album/YouTube media |
+| Playlists | JSON persistence, per-track metadata |
 | Frontend | React 19, Vite |
 | 3D Rendering | Three.js |
 
@@ -54,6 +75,7 @@ All modes render with transparent backgrounds so the muted YouTube music video b
 - Python 3.11+
 - Node.js 18+
 - Google Chrome (for the track detection extension)
+- `yt-dlp` installed and on PATH (for video search, thumbnails, and saving)
 
 ### Quick Start
 
@@ -84,7 +106,7 @@ The extension reads track info from streaming sites. Install it once:
 cd backend
 python -W ignore server.py
 ```
-Starts WebSocket on `ws://localhost:8765` and extension HTTP endpoint on `http://localhost:8766`.
+Starts WebSocket on `ws://localhost:8765` and HTTP server on `http://localhost:8766`.
 
 **Frontend:**
 ```bash
@@ -97,9 +119,11 @@ Opens at `http://localhost:5173`.
 
 1. Run `start.bat` (or start backend + frontend manually)
 2. Play audio on any supported streaming site (Pandora, Spotify, YouTube Music, etc.)
-3. Track info appears in the bottom-left overlay and debug panel
-4. Pick a visualizer mode from the header selector
-5. Toggle song history panel from the header
+3. Track info appears in the bottom-left overlay
+4. The music video plays instantly as a background layer
+5. Videos are saved automatically — download progress shows in the track overlay
+6. Pick a visualizer mode from the header selector
+7. Toggle song history or playlist panels from the header
 
 ### Optional: Audio Fingerprinting
 
@@ -109,39 +133,43 @@ To enable song identification from the audio signal (for apps that don't expose 
 2. Create `backend/.env` with `ACOUSTID_API_KEY=your_key`
 3. Install [fpcalc](https://acoustid.org/chromaprint) and add to PATH
 
-Without this, the app still works — it just relies on the Windows media session for track detection.
+Without this, the app still works — it just relies on the Windows media session and Chrome extension for track detection.
 
 ## Project Structure
 
 ```
 backend/
-  server.py          — Audio capture, FFT, WebSocket server, media polling, extension HTTP endpoint
-  artist_store.py    — Artist profile persistence, color extraction, genre mapping
-  fingerprinter.py   — Audio fingerprinting via AcoustID (optional)
-  history_store.py   — Song play history logging (JSON persistence)
-  media_cache.py     — YouTube video search and thumbnail caching via yt-dlp
-  data/artists/      — Cached artist profiles (auto-generated)
-  data/history.json  — Play history log (auto-generated)
-  data/media_cache/  — Cached YouTube thumbnails (auto-generated)
+  server.py            — Audio capture, FFT, WebSocket, media polling, HTTP server
+  video_downloader.py  — YouTube video download with progress tracking (yt-dlp)
+  playlist_store.py    — Playlist CRUD and persistence (JSON)
+  artist_store.py      — Artist profile persistence, color extraction, genre mapping
+  fingerprinter.py     — Audio fingerprinting via AcoustID (optional)
+  history_store.py     — Song play history logging (JSON)
+  media_cache.py       — YouTube video search and thumbnail caching via yt-dlp
+  data/artists/        — Cached artist profiles (auto-generated)
+  data/history.json    — Play history log (auto-generated)
+  data/playlists.json  — Saved playlists (auto-generated)
+  data/media_cache/    — Cached thumbnails + downloaded videos (auto-generated)
 extension/
-  manifest.json      — Chrome extension manifest (Manifest V3)
-  content.js         — DOM scraper + MediaSession interceptor for streaming sites
+  manifest.json        — Chrome extension manifest (Manifest V3)
+  content.js           — DOM scraper + MediaSession interceptor for streaming sites
 frontend/
   src/
-    App.jsx          — Main app, mode switching, debug panel
+    App.jsx            — Main app layout, mode switching
     components/
-      Visualizer.jsx      — 2D canvas visualizers (passes media assets)
-      ThreeVisualizer.jsx — 3D Three.js visualizers (passes texture manager)
-      TrackInfo.jsx       — Track info overlay with genres, colors, YouTube link
-      ModeSelector.jsx    — Mode picker UI
-      YouTubeBackground.jsx — Muted YouTube video background (IFrame API)
-      SongHistory.jsx     — Collapsible play history panel
+      Visualizer.jsx        — 2D canvas visualizers (passes media assets)
+      ThreeVisualizer.jsx   — 3D Three.js visualizers (passes texture manager)
+      TrackInfo.jsx         — Track info overlay with genres, colors, save progress
+      ModeSelector.jsx      — Mode picker UI
+      YouTubeBackground.jsx — Video background (YouTube IFrame → local MP4 crossfade)
+      SongHistory.jsx       — Collapsible play history panel
+      PlaylistPanel.jsx     — Offline playlist management panel
     hooks/
-      useAudioWebSocket.js — WebSocket data hook with media change detection
+      useAudioWebSocket.js  — WebSocket data hook with media change detection
     utils/
       mediaTextureManager.js — Shared image/texture loading for all visualizers
-    visualizers/           — Individual visualizer implementations
-start.bat              — One-click launcher for backend + frontend
+    visualizers/             — Individual visualizer implementations
+start.bat                — One-click launcher for backend + frontend
 ```
 
 ## Roadmap
@@ -154,6 +182,7 @@ start.bat              — One-click launcher for backend + frontend
 - Plugin architecture for community visualizers
 - More visualizer modes (spectrum waterfall, DNA helix, etc.)
 - Song-specific choreographed animations
+- Playlist playback (play saved videos in sequence)
 
 ## Supported Streaming Sites
 
@@ -171,3 +200,4 @@ The Windows media session fallback works with any app that exposes "Now Playing"
 - Windows only (WASAPI loopback + WinRT media session)
 - Audio must be playing through the default output device
 - Google Chrome with the extension installed (for web player track detection)
+- `yt-dlp` on PATH (for YouTube search and video saving)

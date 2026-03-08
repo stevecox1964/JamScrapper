@@ -148,7 +148,15 @@ body {
   pointer-events: none;
 }
 
-.youtube-bg iframe {
+/* Outer wrapper that React controls — persists even after YT replaces the inner div */
+.youtube-bg .yt-layer {
+  position: absolute;
+  inset: 0;
+  opacity: 0.85;
+  transition: opacity 1s ease;
+}
+
+.youtube-bg .yt-layer iframe {
   position: absolute;
   top: 50%;
   left: 50%;
@@ -157,15 +165,11 @@ body {
   height: 56.25vw;
   min-height: 100vh;
   min-width: 177.78vh;
-  opacity: 0.85;
-  transition: opacity 1.5s ease;
   border: none;
 }
 
-/* Video-only mode — full opacity video, hide canvas */
-.video-mode .youtube-bg iframe {
-  opacity: 1;
-}
+.video-mode .youtube-bg .yt-layer { opacity: 1; }
+.youtube-bg .yt-layer.hidden { opacity: 0; }
 
 .video-mode .visualizer-canvas {
   pointer-events: none;
@@ -269,7 +273,7 @@ body {
   margin-top: 2px;
 }
 
-/* Debug panel */
+/* Header toggle buttons */
 .debug-toggle {
   background: transparent;
   border: 1px solid #333;
@@ -278,74 +282,6 @@ body {
   border-radius: 12px;
   cursor: pointer;
   font-size: 10px;
-}
-
-.debug-panel {
-  position: fixed;
-  top: 56px;
-  right: 12px;
-  z-index: 30;
-  background: rgba(0, 0, 0, 0.85);
-  backdrop-filter: blur(10px);
-  border: 1px solid #333;
-  border-radius: 10px;
-  padding: 10px 14px;
-  font-family: 'Consolas', 'Fira Code', monospace;
-  font-size: 11px;
-  min-width: 260px;
-}
-
-.debug-title {
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-  color: var(--accent);
-  margin-bottom: 6px;
-}
-
-.debug-row {
-  padding: 2px 0;
-  color: #aaa;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.debug-label {
-  color: #666;
-  display: inline-block;
-  width: 70px;
-}
-
-/* YouTube link in track info */
-.youtube-link {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 6px;
-  text-decoration: none;
-  opacity: 0.8;
-  transition: opacity 0.2s;
-}
-
-.youtube-link:hover {
-  opacity: 1;
-}
-
-.youtube-thumb {
-  width: 64px;
-  height: 36px;
-  border-radius: 4px;
-  object-fit: cover;
-}
-
-.youtube-label {
-  font-size: 9px;
-  color: #ff4444;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
 }
 
 /* Song history panel */
@@ -413,4 +349,238 @@ body {
   color: #555;
   font-style: italic;
   padding: 8px 0;
+}
+
+/* Download / save status */
+.download-status {
+  margin-top: 4px;
+  font-size: 9px;
+}
+
+.download-bar {
+  height: 3px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-bottom: 2px;
+}
+
+.download-fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.3s ease;
+  border-radius: 2px;
+}
+
+.download-text { color: var(--accent); }
+.download-complete { color: #00ff88; font-size: 9px; margin-top: 4px; }
+
+/* Local video playback — crossfades with YouTube IFrame */
+.youtube-bg .local-video {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 100vw;
+  height: 56.25vw;
+  min-height: 100vh;
+  min-width: 177.78vh;
+  transition: opacity 1s ease;
+  object-fit: cover;
+}
+
+/* Playlist panel */
+.playlist-panel {
+  position: fixed;
+  top: 56px;
+  left: 12px;
+  z-index: 31;
+  background: rgba(0, 0, 0, 0.85);
+  backdrop-filter: blur(10px);
+  border: 1px solid #333;
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 11px;
+  max-height: 500px;
+  width: 320px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.playlist-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.playlist-title {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--accent);
+}
+
+.playlist-add-btn {
+  background: transparent;
+  border: 1px solid #444;
+  color: var(--accent);
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.playlist-add-btn:hover {
+  background: var(--accent);
+  color: #000;
+}
+
+.playlist-create {
+  display: flex;
+  gap: 6px;
+}
+
+.playlist-input {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid #444;
+  color: var(--text);
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  outline: none;
+}
+
+.playlist-input:focus {
+  border-color: var(--accent);
+}
+
+.playlist-create-btn {
+  background: var(--accent);
+  border: none;
+  color: #000;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.playlist-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.playlist-item {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.playlist-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 0;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.playlist-row:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.playlist-arrow {
+  font-size: 8px;
+  color: #555;
+  width: 12px;
+}
+
+.playlist-name {
+  flex: 1;
+  color: #ccc;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.playlist-count {
+  color: #555;
+  font-size: 9px;
+  flex-shrink: 0;
+}
+
+.playlist-add-track,
+.playlist-delete {
+  background: transparent;
+  border: none;
+  color: #555;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0 3px;
+  transition: color 0.2s;
+}
+
+.playlist-add-track:hover { color: #00ff88; }
+.playlist-delete:hover { color: #ff5555; }
+
+.playlist-tracks {
+  padding-left: 18px;
+  padding-bottom: 4px;
+}
+
+.playlist-track {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 0;
+}
+
+.playlist-track-num {
+  color: #444;
+  font-size: 9px;
+  width: 18px;
+  flex-shrink: 0;
+}
+
+.playlist-track-info {
+  flex: 1;
+  color: #aaa;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+}
+
+.playlist-track-remove {
+  background: transparent;
+  border: none;
+  color: #444;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 0 2px;
+  transition: color 0.2s;
+}
+
+.playlist-track-remove:hover { color: #ff5555; }
+
+.playlist-empty {
+  color: #555;
+  font-style: italic;
+  padding: 6px 0;
+  font-size: 10px;
+}
+
+.playlist-storage {
+  color: #444;
+  font-size: 9px;
+  text-align: center;
+  padding-top: 6px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
 }

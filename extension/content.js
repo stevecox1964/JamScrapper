@@ -65,5 +65,5 @@ function pollDOM() {
   }
 }
 
-setInterval(pollDOM, 3000);
+setInterval(pollDOM, 1000);
 pollDOM();

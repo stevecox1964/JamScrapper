@@ -5,6 +5,7 @@ import ThreeVisualizer from './components/ThreeVisualizer';
 import ModeSelector from './components/ModeSelector';
 import TrackInfo from './components/TrackInfo';
 import SongHistory from './components/SongHistory';
+import PlaylistPanel from './components/PlaylistPanel';
 import YouTubeBackground from './components/YouTubeBackground';
 import MediaTextureManager from './utils/mediaTextureManager';
 import './App.css';
@@ -13,9 +14,9 @@ const THREE_D_MODES = new Set(['tunnel', 'galaxy', 'terrain', 'starfield']);
 
 export default function App() {
   const [mode, setMode] = useState('video');
-  const [showDebug, setShowDebug] = useState(true);
   const [showHistory, setShowHistory] = useState(false);
-  const { dataRef, connected, media, rawMedia, historyVersion } = useAudioWebSocket('ws://localhost:8765');
+  const [showPlaylist, setShowPlaylist] = useState(false);
+  const { dataRef, connected, media, historyVersion } = useAudioWebSocket('ws://localhost:8765');
   const mediaManagerRef = useRef(new MediaTextureManager());
 
   useEffect(() => {
@@ -38,38 +39,22 @@ export default function App() {
         <button className="debug-toggle" onClick={() => setShowHistory(h => !h)}>
           {showHistory ? 'Hide' : 'Show'} History
         </button>
-        <button className="debug-toggle" onClick={() => setShowDebug(d => !d)}>
-          {showDebug ? 'Hide' : 'Show'} Debug
+        <button className="debug-toggle" onClick={() => setShowPlaylist(p => !p)}>
+          {showPlaylist ? 'Hide' : 'Show'} Playlists
         </button>
       </div>
-      <YouTubeBackground videoId={media?.youtubeVideoId} />
+
+      <YouTubeBackground videoId={media?.youtubeVideoId} downloadStatus={media?.videoDownloadStatus} />
+
       {is3D ? (
         <ThreeVisualizer mode={mode} dataRef={dataRef} mediaManager={mediaManagerRef} />
       ) : (
         <Visualizer mode={mode} dataRef={dataRef} mediaManager={mediaManagerRef} />
       )}
+
       <TrackInfo media={media} />
       <SongHistory historyVersion={historyVersion} visible={showHistory} />
-      {showDebug && (
-        <div className="debug-panel">
-          <div className="debug-title">Media Detection Debug</div>
-          {!rawMedia ? (
-            <div className="debug-row"><span className="debug-label">Status:</span> No media data from backend</div>
-          ) : (
-            <>
-              <div className="debug-row"><span className="debug-label">Artist:</span> {rawMedia.artist || '(empty)'}</div>
-              <div className="debug-row"><span className="debug-label">Title:</span> {rawMedia.title || '(empty)'}</div>
-              <div className="debug-row"><span className="debug-label">Album:</span> {rawMedia.album || '(empty)'}</div>
-              <div className="debug-row"><span className="debug-label">Source:</span> {rawMedia.detectionSource || '(none)'}</div>
-              <div className="debug-row"><span className="debug-label">Genres:</span> {rawMedia.genres?.join(', ') || '(none)'}</div>
-              <div className="debug-row"><span className="debug-label">Images:</span> {rawMedia.artistImages?.length || 0}</div>
-              <div className="debug-row"><span className="debug-label">Colors:</span> {rawMedia.dominantColors?.length || 0}</div>
-              <div className="debug-row"><span className="debug-label">Version:</span> {rawMedia._profileVersion || 0}</div>
-              <div className="debug-row"><span className="debug-label">Album Art:</span> {rawMedia.albumArt ? 'Yes' : 'No'}</div>
-            </>
-          )}
-        </div>
-      )}
+      <PlaylistPanel visible={showPlaylist} currentMedia={media} />
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 let apiLoaded = false;
 let apiReady = false;
@@ -26,27 +26,63 @@ function whenReady(cb) {
   else readyCallbacks.push(cb);
 }
 
-export default function YouTubeBackground({ videoId }) {
-  const containerRef = useRef(null);
+function isPlayerAlive(player) {
+  try {
+    const iframe = player.getIframe?.();
+    return iframe && document.contains(iframe);
+  } catch (_) {
+    return false;
+  }
+}
+
+export default function YouTubeBackground({ videoId, downloadStatus }) {
+  const ytTargetRef = useRef(null);
   const playerRef = useRef(null);
   const currentIdRef = useRef('');
+  const videoElRef = useRef(null);
+  const [localReady, setLocalReady] = useState(false);
+  const [localFailed, setLocalFailed] = useState(false);
+
+  const hasLocal = downloadStatus?.state === 'completed' && videoId && !localFailed;
+  const showLocal = hasLocal && localReady;
 
   useEffect(() => {
     loadYouTubeAPI();
   }, []);
 
   useEffect(() => {
-    if (!videoId || videoId === currentIdRef.current) return;
+    setLocalReady(false);
+    setLocalFailed(false);
+  }, [videoId]);
+
+  // Pause/resume YouTube when switching to/from local video
+  useEffect(() => {
+    const p = playerRef.current;
+    if (!p || !isPlayerAlive(p)) return;
+    try {
+      if (showLocal) p.pauseVideo();
+      else p.playVideo();
+    } catch (_) {}
+  }, [showLocal]);
+
+  // YouTube IFrame — create player once, swap videos via loadVideoById
+  useEffect(() => {
+    if (!videoId) return;
+    if (videoId === currentIdRef.current) return;
     currentIdRef.current = videoId;
 
-    if (playerRef.current) {
+    // If player exists and its iframe is still in the DOM, just swap the video
+    if (playerRef.current && isPlayerAlive(playerRef.current)) {
       playerRef.current.loadVideoById(videoId);
       return;
     }
 
+    // Player is missing or stale — create a new one
+    playerRef.current = null;
+
     whenReady(() => {
-      if (!containerRef.current) return;
-      playerRef.current = new window.YT.Player(containerRef.current, {
+      if (!ytTargetRef.current) return;
+      playerRef.current = new window.YT.Player(ytTargetRef.current, {
         videoId,
         playerVars: {
           autoplay: 1,
@@ -64,11 +100,7 @@ export default function YouTubeBackground({ videoId }) {
           origin: window.location.origin,
         },
         events: {
-          onReady: (e) => {
-            e.target.setLoop(true);
-          },
           onStateChange: (e) => {
-            // Loop: when video ends, restart
             if (e.data === window.YT.PlayerState.ENDED) {
               e.target.seekTo(0);
               e.target.playVideo();
@@ -77,20 +109,45 @@ export default function YouTubeBackground({ videoId }) {
         },
       });
     });
-
-    return () => {
-      if (playerRef.current?.destroy) {
-        playerRef.current.destroy();
-        playerRef.current = null;
-      }
-    };
   }, [videoId]);
 
-  if (!videoId) return null;
+  // Load local MP4 when download is complete
+  useEffect(() => {
+    const vid = videoElRef.current;
+    if (!vid || !hasLocal || !videoId) return;
 
+    const src = `http://localhost:8766/media/videos/${videoId}.mp4`;
+    if (vid.src !== src) {
+      vid.src = src;
+      vid.load();
+    }
+  }, [hasLocal, videoId]);
+
+  const handleCanPlay = () => setLocalReady(true);
+  const handleError = () => {
+    console.warn('Local video failed, staying on YouTube stream');
+    setLocalFailed(true);
+  };
+
+  // Never unmount — keep DOM alive so the YouTube player survives track switches.
+  // Just hide visually when there's no video to show.
   return (
-    <div className="youtube-bg">
-      <div ref={containerRef} />
+    <div className="youtube-bg" style={{ visibility: videoId ? 'visible' : 'hidden' }}>
+      <div className={`yt-layer${showLocal ? ' hidden' : ''}`}>
+        <div ref={ytTargetRef} />
+      </div>
+
+      <video
+        ref={videoElRef}
+        muted
+        loop
+        playsInline
+        autoPlay
+        className="local-video"
+        style={{ opacity: showLocal ? 1 : 0 }}
+        onCanPlay={handleCanPlay}
+        onError={handleError}
+      />
     </div>
   );
 }
