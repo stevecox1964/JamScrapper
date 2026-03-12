@@ -9,9 +9,33 @@ export default function useAudioWebSocket(url = 'ws://localhost:8765') {
   const reconnectTimer = useRef(null);
   const lastTrackKey = useRef('');
   const lastProfileVersion = useRef(0);
+  const lastVideoId = useRef('');
   const lastHistoryVersion = useRef(0);
   const [historyVersion, setHistoryVersion] = useState(0);
   const rawThrottle = useRef(0);
+
+  const applyMedia = useCallback((nextMedia) => {
+    if (!nextMedia) return;
+    const key = `${nextMedia.artist}|||${nextMedia.title}`;
+    const profileVersion = nextMedia._profileVersion || 0;
+    const nextVideoId = nextMedia.youtubeVideoId || '';
+    const trackChanged = key !== lastTrackKey.current;
+    const profileChanged = profileVersion !== lastProfileVersion.current;
+    const videoChanged = nextVideoId !== lastVideoId.current;
+
+    if (trackChanged || profileChanged || videoChanged) {
+      lastTrackKey.current = key;
+      lastProfileVersion.current = profileVersion;
+      lastVideoId.current = nextVideoId;
+      setMedia(nextMedia);
+    }
+
+    const hv = nextMedia._historyVersion || 0;
+    if (hv !== lastHistoryVersion.current) {
+      lastHistoryVersion.current = hv;
+      setHistoryVersion(hv);
+    }
+  }, []);
 
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
@@ -33,26 +57,12 @@ export default function useAudioWebSocket(url = 'ws://localhost:8765') {
         setRawMedia(parsed.media || null);
       }
 
-      // Update media state on track change OR profile enrichment update
-      if (parsed.media) {
-        const key = `${parsed.media.artist}|||${parsed.media.title}`;
-        const profileVersion = parsed.media._profileVersion || 0;
-        if (key !== lastTrackKey.current || profileVersion !== lastProfileVersion.current) {
-          lastTrackKey.current = key;
-          lastProfileVersion.current = profileVersion;
-          setMedia(parsed.media);
-        }
-        const hv = parsed.media._historyVersion || 0;
-        if (hv !== lastHistoryVersion.current) {
-          lastHistoryVersion.current = hv;
-          setHistoryVersion(hv);
-        }
-      }
+      applyMedia(parsed.media);
     };
 
     ws.onclose = () => {
       setConnected(false);
-      reconnectTimer.current = setTimeout(connect, 2000);
+      reconnectTimer.current = setTimeout(connect, 1000);
     };
 
     ws.onerror = () => {
@@ -60,7 +70,7 @@ export default function useAudioWebSocket(url = 'ws://localhost:8765') {
     };
 
     wsRef.current = ws;
-  }, [url]);
+  }, [url, applyMedia]);
 
   useEffect(() => {
     connect();
@@ -69,6 +79,26 @@ export default function useAudioWebSocket(url = 'ws://localhost:8765') {
       wsRef.current?.close();
     };
   }, [connect]);
+
+  // HTTP snapshot fallback: ensures first render picks up current track
+  // even if websocket arrives late during startup.
+  useEffect(() => {
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const res = await fetch('http://localhost:8766/now-playing');
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled) applyMedia(data.media);
+      } catch (_) {}
+    };
+    poll();
+    const id = setInterval(poll, 1000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [applyMedia]);
 
   return { dataRef, connected, media, rawMedia, historyVersion };
 }

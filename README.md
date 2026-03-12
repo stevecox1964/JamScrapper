@@ -34,6 +34,21 @@ Create offline playlists from downloaded videos:
 - Track metadata (artist, title, duration) stored alongside video references
 - All playlist data persists as JSON in `backend/data/playlists.json`
 
+## Player Mode
+
+JamScrapper now supports two workflows:
+- **Live mode** — detect tracks from streaming apps, play muted video background, auto-save downloads
+- **Player mode** — play saved local videos with audio, queue playlists, and auto-advance tracks
+
+Player mode uses local files served from `backend/data/media_cache/videos/` and keeps the visualizer overlay on top so future FX can be layered over playback.
+
+## History Playback
+
+Song history is now playable:
+- History entries are enriched with cached/downloaded video metadata
+- Click a playable history row to jump straight into Player mode
+- If a song is in history but not downloaded yet, the UI shows a clear message
+
 ## Visualizer Modes
 
 **2D (Canvas)**
@@ -124,6 +139,8 @@ Opens at `http://localhost:5173`.
 5. Videos are saved automatically — download progress shows in the track overlay
 6. Pick a visualizer mode from the header selector
 7. Toggle song history or playlist panels from the header
+8. Switch to **Player** mode to play your saved library and playlists with audio
+9. Click playable rows in **History** to launch old songs instantly
 
 ### Optional: Audio Fingerprinting
 
@@ -139,7 +156,7 @@ Without this, the app still works — it just relies on the Windows media sessio
 
 ```
 backend/
-  server.py            — Audio capture, FFT, WebSocket, media polling, HTTP server
+  server.py            — Audio capture, FFT, WebSocket, media polling, HTTP server (`/now-playing`, `/history/playable`, `/library`)
   video_downloader.py  — YouTube video download with progress tracking (yt-dlp)
   playlist_store.py    — Playlist CRUD and persistence (JSON)
   artist_store.py      — Artist profile persistence, color extraction, genre mapping
@@ -162,10 +179,12 @@ frontend/
       TrackInfo.jsx         — Track info overlay with genres, colors, save progress
       ModeSelector.jsx      — Mode picker UI
       YouTubeBackground.jsx — Video background (YouTube IFrame → local MP4 crossfade)
-      SongHistory.jsx       — Collapsible play history panel
+      SongHistory.jsx       — Collapsible play history panel with playable rows
       PlaylistPanel.jsx     — Offline playlist management panel
+      LibraryPanel.jsx      — Saved library + playlist playback panel (Player mode)
+      PlayerControls.jsx    — Transport controls (play/pause, seek, volume, next/prev)
     hooks/
-      useAudioWebSocket.js  — WebSocket data hook with media change detection
+      useAudioWebSocket.js  — WebSocket data hook + `/now-playing` startup fallback
     utils/
       mediaTextureManager.js — Shared image/texture loading for all visualizers
     visualizers/             — Individual visualizer implementations
@@ -182,7 +201,7 @@ start.bat                — One-click launcher for backend + frontend
 - Plugin architecture for community visualizers
 - More visualizer modes (spectrum waterfall, DNA helix, etc.)
 - Song-specific choreographed animations
-- Playlist playback (play saved videos in sequence)
+- Smart queue/repeat/shuffle controls for Player mode
 
 ## Supported Streaming Sites
 

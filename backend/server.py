@@ -28,6 +28,8 @@ BLOCK_SIZE = 2048
 FFT_BINS = 128
 WAVEFORM_POINTS = 128
 FPS = 30
+MEDIA_POLL_INTERVAL = 1.0
+EXTENSION_POLL_INTERVAL = 0.05
 
 
 def log_bin(fft_data, num_bins):
@@ -85,6 +87,7 @@ media_info = {
     "videoDownloadStatus": None,
 }
 _last_track_key = ""
+_last_track_seen_at = 0.0
 _profile_version = 0
 _detection_source = ""
 _image_cache = {}  # artist -> image list
@@ -348,13 +351,15 @@ def fetch_artist_images(artist_name):
 
 async def _handle_track_detected(artist, title, album, thumb_b64, source):
     """Common handler for when a track is detected (from any source)."""
-    global _last_track_key, media_info, _profile_version, _detection_source
+    global _last_track_key, _last_track_seen_at, media_info, _profile_version, _detection_source
 
     track_key = f"{artist}|||{title}"
     if track_key == _last_track_key:
+        _last_track_seen_at = asyncio.get_running_loop().time()
         return  # Same track, skip
 
     _last_track_key = track_key
+    _last_track_seen_at = asyncio.get_running_loop().time()
     _detection_source = source
     _profile_version += 1
     print(f"  >> Now playing: {artist} - {title} ({album}) [via {source}]")
@@ -500,7 +505,7 @@ _poll_count = 0
 
 
 async def media_poll_loop():
-    """Poll Windows media session every 3 seconds for track changes.
+    """Poll Windows media session frequently for track changes.
     Falls back to scraping Chrome window titles if media session gives nothing useful."""
     global _poll_count
 
@@ -528,7 +533,7 @@ async def media_poll_loop():
                     chrome_artist or "", chrome_title or "", "", None, "chrome_tab"
                 )
 
-        await asyncio.sleep(3)
+        await asyncio.sleep(MEDIA_POLL_INTERVAL)
 
 
 # ---------- Audio capture ----------
@@ -596,8 +601,16 @@ async def handler(websocket):
 async def broadcast_loop():
     """Send the latest audio frame to all connected clients."""
     while True:
-        if latest_frame and connected_clients:
-            broadcast(connected_clients, latest_frame)
+        if connected_clients:
+            frame = latest_frame
+            if not frame:
+                frame = json.dumps({
+                    "fft": [],
+                    "waveform": [],
+                    "peak": 0,
+                    "media": media_info,
+                })
+            broadcast(connected_clients, frame)
         await asyncio.sleep(1 / FPS)
 
 
@@ -690,11 +703,50 @@ class TrackHandler(BaseHTTPRequestHandler):
         if self.path == "/history":
             self._json_response(history_store.get_recent(50))
 
+        elif self.path == "/history/playable":
+            enriched = []
+            for entry in history_store.get_recent(100):
+                artist = (entry.get("artist") or "").strip()
+                title = (entry.get("title") or "").strip()
+                cached = media_cache.get_cached(artist, title) if (artist or title) else None
+                video_id = cached.get("videoId", "") if cached else ""
+                status = video_downloader.get_status(video_id) if video_id else None
+                is_playable = bool(video_id and video_downloader.is_downloaded(video_id))
+                enriched.append({
+                    **entry,
+                    "videoId": video_id,
+                    "videoTitle": cached.get("videoTitle", "") if cached else "",
+                    "duration": cached.get("duration", 0) if cached else 0,
+                    "fileSizeMB": (status or {}).get("fileSizeMB", 0),
+                    "isPlayable": is_playable,
+                })
+            self._json_response(enriched)
+
+        elif self.path == "/now-playing":
+            self._json_response({"media": media_info})
+
         elif self.path == "/downloads":
             self._json_response({
                 "downloads": video_downloader.get_all_status(),
                 "storage": video_downloader.get_storage_info(),
             })
+
+        elif self.path == "/library":
+            completed = []
+            for item in video_downloader.get_all_status():
+                if item.get("state") != "completed":
+                    continue
+                completed.append({
+                    "videoId": item.get("videoId", ""),
+                    "artist": item.get("artist", ""),
+                    "title": item.get("title", ""),
+                    "videoTitle": item.get("videoTitle", ""),
+                    "duration": item.get("duration", 0),
+                    "fileSizeMB": item.get("fileSizeMB", 0),
+                    "filePath": item.get("filePath", ""),
+                    "completedAt": item.get("completedAt", ""),
+                })
+            self._json_response({"tracks": completed})
 
         elif self.path == "/playlists":
             self._json_response(playlist_store.list_playlists())
@@ -871,7 +923,7 @@ async def extension_poll_loop():
             await _handle_track_detected(
                 track["artist"], track["title"], track["album"], None, "extension"
             )
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(EXTENSION_POLL_INTERVAL)
 
 
 async def download_progress_loop():
