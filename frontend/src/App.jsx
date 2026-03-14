@@ -143,7 +143,7 @@ export default function App() {
         <Visualizer mode={mode} dataRef={dataRef} mediaManager={mediaManagerRef} />
       )}
 
-      <TrackInfo media={displayMedia} />
+      <TrackInfo media={displayMedia} hasVideo={Boolean(displayMedia?.youtubeVideoId || (isPlayer && currentPlayerTrack?.videoId))} />
       <SongHistory historyVersion={historyVersion} visible={showHistory} onPlayTrack={playTrack} />
       <PlaylistPanel visible={showPlaylist && appMode === 'live'} currentMedia={media} />
       <LibraryPanel

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 
-export default function TrackInfo({ media }) {
+export default function TrackInfo({ media, hasVideo }) {
   const [visible, setVisible] = useState(false);
   const [imgIndex, setImgIndex] = useState(0);
 
@@ -33,7 +33,7 @@ export default function TrackInfo({ media }) {
     <>
       {artistImg && (
         <div
-          className="artist-bg"
+          className={`artist-bg${hasVideo ? '' : ' no-video'}`}
           style={{ backgroundImage: `url(${artistImg})` }}
         />
       )}

@@ -185,8 +185,14 @@ body {
   background-position: center;
   opacity: 0.12;
   filter: blur(30px) saturate(1.5);
-  transition: background-image 1.5s ease-in-out, opacity 1.5s ease;
+  transition: background-image 1.5s ease-in-out, opacity 1.5s ease, filter 1.5s ease;
   pointer-events: none;
+}
+
+/* When no video is present, show artist images clearly */
+.artist-bg.no-video {
+  opacity: 0.45;
+  filter: saturate(1.2) brightness(0.7);
 }
 
 /* Track info overlay */
