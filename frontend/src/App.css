@@ -176,22 +176,20 @@ body {
   pointer-events: none;
 }
 
-/* Artist background image */
-.artist-bg {
+/* Artist background slideshow layers (dual-layer crossfade) */
+.artist-bg-layer {
   position: fixed;
   inset: 0;
   z-index: 1;
   background-size: cover;
   background-position: center;
-  opacity: 0.12;
   filter: blur(30px) saturate(1.5);
-  transition: background-image 1.5s ease-in-out, opacity 1.5s ease, filter 1.5s ease;
+  transition: opacity 2s ease-in-out;
   pointer-events: none;
 }
 
 /* When no video is present, show artist images clearly */
-.artist-bg.no-video {
-  opacity: 0.45;
+.artist-bg-layer.no-video {
   filter: saturate(1.2) brightness(0.7);
 }
 
@@ -720,6 +718,53 @@ body {
   gap: 6px;
   color: #999;
   font-size: 10px;
+}
+
+.player-queue-pos {
+  color: #555;
+  font-size: 9px;
+  font-family: 'Consolas', 'Fira Code', monospace;
+}
+
+.player-up-next {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 4px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+  transition: background 0.15s;
+  border-radius: 4px;
+}
+
+.player-up-next:hover {
+  background: rgba(0, 229, 255, 0.08);
+}
+
+.player-up-next-label {
+  color: #666;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  flex-shrink: 0;
+}
+
+.player-up-next-track {
+  color: #aaa;
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.history-entry-btn.now-playing {
+  background: rgba(0, 229, 255, 0.1);
+  border-left: 2px solid var(--accent, #00e5ff);
+}
+
+.history-entry-btn.now-playing .history-track {
+  color: var(--accent, #00e5ff);
 }
 
 /* Library panel (player mode) */

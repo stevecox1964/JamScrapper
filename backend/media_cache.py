@@ -1,53 +1,54 @@
 import json
 import shutil
 import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 
 import requests
 
 
 class MediaCache:
-    """YouTube video search and thumbnail caching via yt-dlp."""
+    """YouTube video search and thumbnail caching via yt-dlp, backed by SQLite."""
 
-    def __init__(self, data_dir=None):
+    def __init__(self, conn, data_dir=None):
+        self._conn = conn
         if data_dir is None:
             data_dir = Path(__file__).parent / "data" / "media_cache"
         self.data_dir = Path(data_dir)
         self.thumb_dir = self.data_dir / "thumbnails"
         self.thumb_dir.mkdir(parents=True, exist_ok=True)
-        self.cache_path = self.data_dir / "youtube_cache.json"
-        self._cache = self._load()
         self._yt_dlp_available = shutil.which("yt-dlp") is not None
         if not self._yt_dlp_available:
             print("yt-dlp not found -- YouTube search disabled")
-
-    def _load(self):
-        if self.cache_path.exists():
-            try:
-                with open(self.cache_path, "r", encoding="utf-8") as f:
-                    return json.load(f)
-            except Exception:
-                return {}
-        return {}
-
-    def _save(self):
-        with open(self.cache_path, "w", encoding="utf-8") as f:
-            json.dump(self._cache, f, indent=2, ensure_ascii=False)
 
     @staticmethod
     def _cache_key(artist, title):
         return f"{artist.lower().strip()}|||{title.lower().strip()}"
 
     def get_cached(self, artist, title):
-        key = self._cache_key(artist, title)
-        return self._cache.get(key)
+        row = self._conn.execute(
+            "SELECT video_id, video_title, channel, duration, thumbnail_url, video_url FROM tracks WHERE artist = ? AND title = ?",
+            (artist.lower().strip(), title.lower().strip())
+        ).fetchone()
+        if not row:
+            return None
+        return {
+            "videoId": row["video_id"],
+            "videoTitle": row["video_title"],
+            "channel": row["channel"],
+            "duration": row["duration"],
+            "thumbnailUrl": row["thumbnail_url"],
+            "videoUrl": row["video_url"],
+            "localThumbnail": f"thumbnails/{row['video_id']}.jpg",
+        }
 
     def search_youtube(self, artist, title):
         """Search YouTube via yt-dlp. BLOCKING -- call via asyncio.to_thread().
         Returns dict with video metadata or None."""
-        key = self._cache_key(artist, title)
-        if key in self._cache:
-            return self._cache[key]
+        # Check SQLite cache first
+        cached = self.get_cached(artist, title)
+        if cached:
+            return cached
 
         if not self._yt_dlp_available:
             return None
@@ -80,8 +81,18 @@ class MediaCache:
             self._download_thumbnail(video_id, entry["thumbnailUrl"])
             entry["localThumbnail"] = f"thumbnails/{video_id}.jpg"
 
-            self._cache[key] = entry
-            self._save()
+            # Save to SQLite
+            now = datetime.now(timezone.utc).isoformat()
+            self._conn.execute("""
+                INSERT OR IGNORE INTO tracks
+                    (artist, title, video_id, video_title, channel, duration, thumbnail_url, video_url, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                artist.lower().strip(), title.lower().strip(), video_id,
+                entry["videoTitle"], entry["channel"], entry["duration"],
+                entry["thumbnailUrl"], entry["videoUrl"], now,
+            ))
+            self._conn.commit()
             print(f"  [YT] Cached: {entry['videoTitle']}")
             return entry
 

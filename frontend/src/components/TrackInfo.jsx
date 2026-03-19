@@ -1,27 +1,47 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import ArtistSlideshow, { buildChoreographyPayload } from './ArtistSlideshow';
+
+const API_BASE = 'http://localhost:8766';
 
 export default function TrackInfo({ media, hasVideo }) {
   const [visible, setVisible] = useState(false);
-  const [imgIndex, setImgIndex] = useState(0);
+  const choreographyRef = useRef([]);
 
   useEffect(() => {
     if (media?.artist || media?.title) {
       setVisible(true);
-      setImgIndex(0);
     }
   }, [media?.artist, media?.title]);
 
+  // Save choreography when track changes (if we have events from the previous track)
+  const prevMediaRef = useRef(null);
   useEffect(() => {
-    if (!media?.artistImages?.length || media.artistImages.length <= 1) return;
-    const interval = setInterval(() => {
-      setImgIndex((i) => (i + 1) % media.artistImages.length);
-    }, 8000);
-    return () => clearInterval(interval);
-  }, [media?.artistImages]);
+    const trackKey = `${media?.artist}|${media?.title}`;
+    const prevKey = prevMediaRef.current
+      ? `${prevMediaRef.current.artist}|${prevMediaRef.current.title}`
+      : null;
+    if (prevKey && prevKey !== trackKey && choreographyRef.current.length > 1) {
+      const prev = prevMediaRef.current;
+      const payload = buildChoreographyPayload(
+        choreographyRef.current,
+        prev,
+        prev.artistImages || []
+      );
+      fetch(`${API_BASE}/choreography`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      }).catch(() => {}); // fire-and-forget
+    }
+    prevMediaRef.current = media ? { ...media } : null;
+  }, [media?.artist, media?.title]);
+
+  const handleChoreographyUpdate = useCallback((events) => {
+    choreographyRef.current = events;
+  }, []);
 
   if (!media || (!media.artist && !media.title)) return null;
 
-  const artistImg = media.artistImages?.[imgIndex];
   const albumArt = media.albumArt;
   const dl = media.videoDownloadStatus;
 
@@ -31,12 +51,11 @@ export default function TrackInfo({ media, hasVideo }) {
 
   return (
     <>
-      {artistImg && (
-        <div
-          className={`artist-bg${hasVideo ? '' : ' no-video'}`}
-          style={{ backgroundImage: `url(${artistImg})` }}
-        />
-      )}
+      <ArtistSlideshow
+        images={media.artistImages}
+        hasVideo={hasVideo}
+        onChoreographyUpdate={handleChoreographyUpdate}
+      />
 
       <div
         className={`track-info ${visible ? 'visible' : ''}`}

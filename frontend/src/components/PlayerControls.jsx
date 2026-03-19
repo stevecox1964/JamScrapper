@@ -1,6 +1,9 @@
 export default function PlayerControls({
   visible,
   currentTrack,
+  nextTrack,
+  queuePosition,
+  queueLength,
   isPlaying,
   currentTime,
   duration,
@@ -29,6 +32,7 @@ export default function PlayerControls({
       <div className="player-track">
         <div className="player-title">{currentTrack?.title || currentTrack?.videoTitle || 'No track selected'}</div>
         <div className="player-artist">{currentTrack?.artist || ''}</div>
+        {queueLength > 0 && <div className="player-queue-pos">{queuePosition + 1} / {queueLength}</div>}
       </div>
 
       <div className="player-buttons">
@@ -63,6 +67,13 @@ export default function PlayerControls({
           onChange={(e) => onVolume(Number(e.target.value))}
         />
       </div>
+
+      {nextTrack && (
+        <div className="player-up-next" onClick={onNext} title="Skip to next">
+          <span className="player-up-next-label">Up next:</span>
+          <span className="player-up-next-track">{nextTrack.artist} — {nextTrack.title || nextTrack.videoTitle}</span>
+        </div>
+      )}
     </div>
   );
 }

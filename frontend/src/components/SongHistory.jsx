@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 
-export default function SongHistory({ historyVersion, visible, onPlayTrack }) {
+export default function SongHistory({ historyVersion, visible, onPlayFromHistory, activeVideoId }) {
   const [history, setHistory] = useState([]);
   const [info, setInfo] = useState('');
   const lastVersion = useRef(0);
@@ -34,21 +34,25 @@ export default function SongHistory({ historyVersion, visible, onPlayTrack }) {
         {history.map((entry, i) => (
           <button
             key={i}
-            className={`history-entry history-entry-btn${entry.isPlayable ? ' playable' : ''}`}
+            className={`history-entry history-entry-btn${entry.isPlayable ? ' playable' : ''}${activeVideoId && entry.videoId === activeVideoId ? ' now-playing' : ''}`}
             onClick={() => {
               if (!entry.isPlayable) {
                 setInfo('This song is in history but not downloaded yet.');
                 window.setTimeout(() => setInfo(''), 2000);
                 return;
               }
-              onPlayTrack?.({
-                videoId: entry.videoId,
-                artist: entry.artist,
-                title: entry.title,
-                videoTitle: entry.videoTitle || entry.title || '',
-                duration: entry.duration || 0,
-                fileSizeMB: entry.fileSizeMB || 0,
-              });
+              const playable = history.filter(e => e.isPlayable).map(e => ({
+                videoId: e.videoId,
+                artist: e.artist,
+                title: e.title,
+                videoTitle: e.videoTitle || e.title || '',
+                duration: e.duration || 0,
+                fileSizeMB: e.fileSizeMB || 0,
+              }));
+              const clickedPlayableIndex = history
+                .filter(e => e.isPlayable)
+                .findIndex(e => e === entry);
+              onPlayFromHistory?.(playable, Math.max(0, clickedPlayableIndex));
             }}
             title={entry.isPlayable ? 'Play saved video' : 'Not saved yet'}
           >

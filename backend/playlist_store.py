@@ -1,31 +1,12 @@
-import json
 import re
 from datetime import datetime, timezone
-from pathlib import Path
 
 
 class PlaylistStore:
-    """Persistent playlist management stored as JSON."""
+    """Persistent playlist management stored in SQLite."""
 
-    def __init__(self, data_dir=None):
-        if data_dir is None:
-            data_dir = Path(__file__).parent / "data"
-        self.path = Path(data_dir) / "playlists.json"
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self._playlists = self._load()
-
-    def _load(self):
-        if self.path.exists():
-            try:
-                with open(self.path, "r", encoding="utf-8") as f:
-                    return json.load(f)
-            except Exception:
-                return {}
-        return {}
-
-    def _save(self):
-        with open(self.path, "w", encoding="utf-8") as f:
-            json.dump(self._playlists, f, indent=2, ensure_ascii=False)
+    def __init__(self, conn):
+        self._conn = conn
 
     @staticmethod
     def _slugify(name):
@@ -33,84 +14,121 @@ class PlaylistStore:
         return slug or "playlist"
 
     def list_playlists(self):
-        result = []
-        for pid, pl in self._playlists.items():
-            result.append({
-                "id": pid,
-                "name": pl["name"],
-                "trackCount": len(pl.get("tracks", [])),
-                "createdAt": pl.get("createdAt", ""),
-            })
-        result.sort(key=lambda x: x["createdAt"], reverse=True)
-        return result
+        rows = self._conn.execute("""
+            SELECT p.id, p.name, p.created_at as createdAt, COUNT(pt.id) as trackCount
+            FROM playlists p
+            LEFT JOIN playlist_tracks pt ON pt.playlist_id = p.id
+            GROUP BY p.id
+            ORDER BY p.created_at DESC
+        """).fetchall()
+        return [dict(r) for r in rows]
 
     def get_playlist(self, playlist_id):
-        return self._playlists.get(playlist_id)
+        row = self._conn.execute(
+            "SELECT id, name, created_at as createdAt FROM playlists WHERE id = ?",
+            (playlist_id,)
+        ).fetchone()
+        if not row:
+            return None
+        pl = dict(row)
+        tracks = self._conn.execute("""
+            SELECT video_id as videoId, artist, title, video_title as videoTitle,
+                   duration, added_at as addedAt
+            FROM playlist_tracks
+            WHERE playlist_id = ?
+            ORDER BY position
+        """, (playlist_id,)).fetchall()
+        pl["tracks"] = [dict(t) for t in tracks]
+        return pl
 
     def create_playlist(self, name):
         base_slug = self._slugify(name)
         slug = base_slug
         counter = 1
-        while slug in self._playlists:
+        while self._conn.execute("SELECT 1 FROM playlists WHERE id = ?", (slug,)).fetchone():
             counter += 1
             slug = f"{base_slug}-{counter}"
 
-        self._playlists[slug] = {
-            "id": slug,
-            "name": name,
-            "createdAt": datetime.now(timezone.utc).isoformat(),
-            "tracks": [],
-        }
-        self._save()
-        return self._playlists[slug]
+        now = datetime.now(timezone.utc).isoformat()
+        self._conn.execute(
+            "INSERT INTO playlists (id, name, created_at) VALUES (?, ?, ?)",
+            (slug, name, now),
+        )
+        self._conn.commit()
+        return {"id": slug, "name": name, "createdAt": now, "tracks": []}
 
     def delete_playlist(self, playlist_id):
-        if playlist_id in self._playlists:
-            del self._playlists[playlist_id]
-            self._save()
-            return True
-        return False
+        row = self._conn.execute("SELECT 1 FROM playlists WHERE id = ?", (playlist_id,)).fetchone()
+        if not row:
+            return False
+        self._conn.execute("DELETE FROM playlists WHERE id = ?", (playlist_id,))
+        self._conn.commit()
+        return True
 
     def add_track(self, playlist_id, track_info):
-        pl = self._playlists.get(playlist_id)
-        if not pl:
+        row = self._conn.execute("SELECT 1 FROM playlists WHERE id = ?", (playlist_id,)).fetchone()
+        if not row:
             return None
         video_id = track_info.get("videoId", "")
         if not video_id:
             return None
-        # Deduplicate by videoId
-        if any(t["videoId"] == video_id for t in pl["tracks"]):
-            return pl
-        pl["tracks"].append({
-            "videoId": video_id,
-            "artist": track_info.get("artist", ""),
-            "title": track_info.get("title", ""),
-            "videoTitle": track_info.get("videoTitle", ""),
-            "duration": track_info.get("duration", 0),
-            "addedAt": datetime.now(timezone.utc).isoformat(),
-        })
-        self._save()
-        return pl
+        # Deduplicate
+        exists = self._conn.execute(
+            "SELECT 1 FROM playlist_tracks WHERE playlist_id = ? AND video_id = ?",
+            (playlist_id, video_id)
+        ).fetchone()
+        if exists:
+            return self.get_playlist(playlist_id)
+
+        # Get next position
+        max_pos = self._conn.execute(
+            "SELECT COALESCE(MAX(position), -1) FROM playlist_tracks WHERE playlist_id = ?",
+            (playlist_id,)
+        ).fetchone()[0]
+
+        self._conn.execute("""
+            INSERT INTO playlist_tracks (playlist_id, video_id, artist, title, video_title, duration, position, added_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            playlist_id, video_id,
+            track_info.get("artist", ""),
+            track_info.get("title", ""),
+            track_info.get("videoTitle", ""),
+            track_info.get("duration", 0),
+            max_pos + 1,
+            datetime.now(timezone.utc).isoformat(),
+        ))
+        self._conn.commit()
+        return self.get_playlist(playlist_id)
 
     def remove_track(self, playlist_id, video_id):
-        pl = self._playlists.get(playlist_id)
-        if not pl:
+        row = self._conn.execute("SELECT 1 FROM playlists WHERE id = ?", (playlist_id,)).fetchone()
+        if not row:
             return None
-        pl["tracks"] = [t for t in pl["tracks"] if t["videoId"] != video_id]
-        self._save()
-        return pl
+        self._conn.execute(
+            "DELETE FROM playlist_tracks WHERE playlist_id = ? AND video_id = ?",
+            (playlist_id, video_id),
+        )
+        self._conn.commit()
+        return self.get_playlist(playlist_id)
 
     def reorder_tracks(self, playlist_id, video_ids):
-        pl = self._playlists.get(playlist_id)
-        if not pl:
+        row = self._conn.execute("SELECT 1 FROM playlists WHERE id = ?", (playlist_id,)).fetchone()
+        if not row:
             return None
-        by_id = {t["videoId"]: t for t in pl["tracks"]}
-        reordered = [by_id[vid] for vid in video_ids if vid in by_id]
-        # Append any tracks not in the reorder list
-        seen = set(video_ids)
-        for t in pl["tracks"]:
-            if t["videoId"] not in seen:
-                reordered.append(t)
-        pl["tracks"] = reordered
-        self._save()
-        return pl
+        # Get all current tracks
+        existing = self._conn.execute(
+            "SELECT video_id FROM playlist_tracks WHERE playlist_id = ?",
+            (playlist_id,)
+        ).fetchall()
+        existing_ids = {r["video_id"] for r in existing}
+
+        # Reorder: given IDs first, then any remaining
+        ordered = list(video_ids) + [vid for vid in existing_ids if vid not in set(video_ids)]
+        for i, vid in enumerate(ordered):
+            self._conn.execute(
+                "UPDATE playlist_tracks SET position = ? WHERE playlist_id = ? AND video_id = ?",
+                (i, playlist_id, vid),
+            )
+        self._conn.commit()
+        return self.get_playlist(playlist_id)

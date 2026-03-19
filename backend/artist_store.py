@@ -1,13 +1,12 @@
-import json
-import os
 import re
 import asyncio
 from datetime import datetime, timezone
 from io import BytesIO
-from pathlib import Path
 
 import requests
 from PIL import Image
+
+from db import json_loads, json_dumps
 
 # ---------- Genre/mood/visualizer mappings ----------
 
@@ -116,7 +115,6 @@ def fetch_genres_from_musicbrainz(artist_name):
         artist = artists[0]
         mbid = artist.get("id", "")
         tags = artist.get("tags", [])
-        # Sort by count descending, take top tags
         tags.sort(key=lambda t: t.get("count", 0), reverse=True)
         genres = [t["name"].lower() for t in tags[:10] if t.get("name")]
         return genres, mbid
@@ -132,11 +130,9 @@ def derive_mood_tags(genres):
     moods = set()
     for genre in genres:
         gl = genre.lower()
-        # Direct match
         if gl in GENRE_MOOD_MAP:
             moods.update(GENRE_MOOD_MAP[gl])
             continue
-        # Substring match
         for key, vals in GENRE_MOOD_MAP.items():
             if key in gl or gl in key:
                 moods.update(vals)
@@ -150,7 +146,6 @@ def derive_preferred_visualizer(genres):
         gl = genre.lower()
         if gl in GENRE_VISUALIZER_MAP:
             return GENRE_VISUALIZER_MAP[gl]
-        # Substring match
         for key, mode in GENRE_VISUALIZER_MAP.items():
             if key in gl or gl in key:
                 return mode
@@ -160,11 +155,8 @@ def derive_preferred_visualizer(genres):
 # ---------- ArtistStore ----------
 
 class ArtistStore:
-    def __init__(self, data_dir=None):
-        if data_dir is None:
-            data_dir = Path(__file__).parent / "data" / "artists"
-        self.data_dir = Path(data_dir)
-        self.data_dir.mkdir(parents=True, exist_ok=True)
+    def __init__(self, conn):
+        self._conn = conn
 
     @staticmethod
     def slugify(name):
@@ -173,27 +165,34 @@ class ArtistStore:
         slug = re.sub(r"[^a-z0-9]+", "-", slug)
         return slug.strip("-") or "unknown"
 
-    def _profile_path(self, slug):
-        return self.data_dir / f"{slug}.json"
-
     def load(self, artist_name):
         """Load an existing artist profile, or return None."""
         slug = self.slugify(artist_name)
-        path = self._profile_path(slug)
-        if not path.exists():
+        row = self._conn.execute("SELECT * FROM artists WHERE slug = ?", (slug,)).fetchone()
+        if not row:
             return None
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            return None
+        return self._row_to_profile(row)
 
     def save(self, profile):
-        """Save an artist profile to disk."""
+        """Save an artist profile to the database."""
         profile["lastUpdated"] = datetime.now(timezone.utc).isoformat()
-        path = self._profile_path(profile["slug"])
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(profile, f, indent=2, ensure_ascii=False)
+        self._conn.execute("""
+            INSERT OR REPLACE INTO artists
+                (slug, name, images, dominant_colors, genres, mood_tags,
+                 preferred_visualizer, songs, last_updated)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            profile["slug"],
+            profile["name"],
+            json_dumps(profile.get("images", [])),
+            json_dumps(profile.get("dominantColors", [])),
+            json_dumps(profile.get("genres", [])),
+            json_dumps(profile.get("moodTags", [])),
+            profile.get("preferredVisualizer", ""),
+            json_dumps(profile.get("songs", [])),
+            profile["lastUpdated"],
+        ))
+        self._conn.commit()
 
     def get_or_create(self, artist_name):
         """Load existing profile or create a skeleton."""
@@ -215,7 +214,6 @@ class ArtistStore:
     def update_song(self, artist_name, title, album="", musicbrainz_id=""):
         """Add a song to the artist profile if not already present."""
         profile = self.get_or_create(artist_name)
-        # Check if song already tracked
         for song in profile["songs"]:
             if song["title"].lower() == title.lower():
                 return profile
@@ -235,6 +233,21 @@ class ArtistStore:
             return True
         return False
 
+    @staticmethod
+    def _row_to_profile(row):
+        """Convert a sqlite3.Row to the profile dict."""
+        return {
+            "name": row["name"],
+            "slug": row["slug"],
+            "images": json_loads(row["images"]),
+            "dominantColors": json_loads(row["dominant_colors"]),
+            "genres": json_loads(row["genres"]),
+            "moodTags": json_loads(row["mood_tags"]),
+            "preferredVisualizer": row["preferred_visualizer"],
+            "songs": json_loads(row["songs"]),
+            "lastUpdated": row["last_updated"],
+        }
+
 
 # ---------- Enrichment orchestrator ----------
 
@@ -242,30 +255,25 @@ async def enrich_artist_profile(store, artist_name, images=None):
     """Build or update a full artist profile with images, colors, genres, moods."""
     profile = store.get_or_create(artist_name)
 
-    # Update images if provided and different
     if images and images != profile.get("images"):
         profile["images"] = images
 
     changed = False
 
-    # Fetch genres from MusicBrainz if missing
     if not profile.get("genres"):
         genres, mbid = await asyncio.to_thread(fetch_genres_from_musicbrainz, artist_name)
         if genres:
             profile["genres"] = genres
             changed = True
 
-    # Derive mood tags from genres
     if profile.get("genres") and not profile.get("moodTags"):
         profile["moodTags"] = derive_mood_tags(profile["genres"])
         changed = True
 
-    # Derive preferred visualizer from genres
     if profile.get("genres") and not profile.get("preferredVisualizer"):
         profile["preferredVisualizer"] = derive_preferred_visualizer(profile["genres"])
         changed = True
 
-    # Extract dominant colors from first image
     if profile.get("images") and not profile.get("dominantColors"):
         colors = await asyncio.to_thread(extract_dominant_colors, profile["images"][0])
         if colors:

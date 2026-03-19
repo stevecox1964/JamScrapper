@@ -59,6 +59,36 @@ export default function App() {
     setAppMode('player');
   };
 
+  const playFromHistory = (tracks, startIndex = 0) => {
+    if (!tracks.length) return;
+    setPlayerQueue(tracks);
+    setPlayerIndex(startIndex);
+    setAppMode('player');
+  };
+
+  const switchToPlayer = () => {
+    // If already in player mode with a queue, just switch back
+    if (playerQueueRef.current.length > 0) {
+      setAppMode('player');
+      return;
+    }
+    // Load history and start from the beginning
+    fetch('http://localhost:8766/history/playable')
+      .then(r => r.json())
+      .then(history => {
+        const playable = history.filter(e => e.isPlayable).map(e => ({
+          videoId: e.videoId,
+          artist: e.artist,
+          title: e.title,
+          videoTitle: e.videoTitle || e.title || '',
+          duration: e.duration || 0,
+          fileSizeMB: e.fileSizeMB || 0,
+        }));
+        playFromHistory(playable, 0);
+      })
+      .catch(() => setAppMode('player'));
+  };
+
   const queuePlaylist = (playlist) => {
     const tracks = (playlist?.tracks || []).filter(t => t.videoId);
     if (!tracks.length) return;
@@ -109,7 +139,7 @@ export default function App() {
           </button>
           <button
             className={appMode === 'player' ? 'active' : ''}
-            onClick={() => setAppMode('player')}
+            onClick={switchToPlayer}
           >
             Player
           </button>
@@ -144,7 +174,7 @@ export default function App() {
       )}
 
       <TrackInfo media={displayMedia} hasVideo={Boolean(displayMedia?.youtubeVideoId || (isPlayer && currentPlayerTrack?.videoId))} />
-      <SongHistory historyVersion={historyVersion} visible={showHistory} onPlayTrack={playTrack} />
+      <SongHistory historyVersion={historyVersion} visible={showHistory} onPlayFromHistory={playFromHistory} activeVideoId={isPlayer ? currentPlayerTrack?.videoId : null} />
       <PlaylistPanel visible={showPlaylist && appMode === 'live'} currentMedia={media} />
       <LibraryPanel
         visible={showPlaylist && appMode === 'player'}
@@ -154,6 +184,9 @@ export default function App() {
       <PlayerControls
         visible={isPlayer}
         currentTrack={currentPlayerTrack}
+        nextTrack={nextPlayerTrack}
+        queuePosition={playerIndex}
+        queueLength={playerQueue.length}
         isPlaying={playerState.playing}
         currentTime={playerState.currentTime}
         duration={playerState.duration}

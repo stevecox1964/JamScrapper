@@ -16,12 +16,14 @@ from winrt.windows.media.control import (
 )
 from winrt.windows.storage.streams import Buffer, InputStreamOptions
 
+from db import get_db, init_db
 from fingerprinter import AudioFingerprinter, load_acoustid_key
 from artist_store import ArtistStore, enrich_artist_profile
 from history_store import HistoryStore
 from media_cache import MediaCache
 from video_downloader import VideoDownloader
 from playlist_store import PlaylistStore
+from choreography_store import ChoreographyStore
 
 SAMPLE_RATE = 44100
 BLOCK_SIZE = 2048
@@ -92,13 +94,18 @@ _profile_version = 0
 _detection_source = ""
 _image_cache = {}  # artist -> image list
 
+# Initialize SQLite database
+_db_conn = get_db()
+init_db(_db_conn)
+
 # Artist profile storage, audio fingerprinter, history, and media cache
-artist_store = ArtistStore()
+artist_store = ArtistStore(_db_conn)
 fingerprinter = AudioFingerprinter(api_key=load_acoustid_key())
-history_store = HistoryStore()
-media_cache = MediaCache()
-video_downloader = VideoDownloader()
-playlist_store = PlaylistStore()
+history_store = HistoryStore(_db_conn)
+media_cache = MediaCache(_db_conn)
+video_downloader = VideoDownloader(_db_conn)
+playlist_store = PlaylistStore(_db_conn)
+choreography_store = ChoreographyStore(_db_conn)
 
 
 # Known streaming services and their tab title patterns
@@ -760,6 +767,18 @@ class TrackHandler(BaseHTTPRequestHandler):
                 self.send_response(404)
                 self.end_headers()
 
+        elif self.path == "/choreography":
+            self._json_response(choreography_store.list_choreographies())
+
+        elif self.path.startswith("/choreography/"):
+            key = self.path[len("/choreography/"):]
+            entry = choreography_store.get_choreography(key)
+            if entry:
+                self._json_response(entry)
+            else:
+                self.send_response(404)
+                self.end_headers()
+
         elif self.path.startswith("/media/videos/"):
             # Serve MP4 with Range support for seeking
             relative = self.path[len("/media/"):]
@@ -849,6 +868,17 @@ class TrackHandler(BaseHTTPRequestHandler):
                 )
             status = video_downloader.get_status(video_id)
             self._json_response(status or {"state": "queued", "videoId": video_id})
+
+        elif self.path == "/choreography":
+            body = self._read_body()
+            action = body.get("action", "save")
+            if action == "delete":
+                key = body.get("id", "")
+                choreography_store.delete_choreography(key)
+                self._json_response({"ok": True})
+            else:
+                entry = choreography_store.save_choreography(body)
+                self._json_response(entry)
 
         elif self.path == "/playlists":
             body = self._read_body()
