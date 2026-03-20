@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-
-const API = 'http://localhost:8766';
+import { API_BASE as API } from '../config';
 
 export default function PlaylistPanel({ visible, currentMedia }) {
   const [playlists, setPlaylists] = useState([]);

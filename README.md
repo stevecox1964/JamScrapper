@@ -11,7 +11,7 @@ The backend also identifies what's playing via three methods:
 - **Windows media session** — reads "Now Playing" metadata from apps that expose it (Spotify desktop, YouTube Music, etc.)
 - **Audio fingerprinting** (optional) — identifies songs from the audio signal via AcoustID/Chromaprint
 
-When an artist is detected, the system fetches images, extracts dominant colors, pulls genre tags from MusicBrainz, and builds a persistent visual profile stored as JSON. Next time that artist plays, the profile loads instantly.
+When an artist is detected, the system fetches images, extracts dominant colors, pulls genre tags from MusicBrainz, and builds a persistent artist profile stored in SQLite. Next time that artist plays, the profile loads instantly.
 
 Every visualizer is infused with media — artist images, album art, and YouTube thumbnails replace plain geometric shapes. A YouTube music video plays as a background layer behind all modes, starting instantly via YouTube's IFrame API. Videos are automatically saved locally in the background as they play. Once a video finishes downloading, playback seamlessly crossfades to the local copy — no buffering, no interruptions.
 
@@ -32,11 +32,11 @@ Create offline playlists from downloaded videos:
 - Add currently playing tracks to any playlist
 - Create, delete, and manage multiple playlists
 - Track metadata (artist, title, duration) stored alongside video references
-- All playlist data persists as JSON in `backend/data/playlists.json`
+- All playlist data persists in SQLite (`backend/data/visualaudio.db`)
 
 ## Player Mode
 
-JamScrapper now supports two workflows:
+JamScrapper supports two workflows:
 - **Live mode** — detect tracks from streaming apps, play muted video background, auto-save downloads
 - **Player mode** — play saved local videos with audio, queue playlists, and auto-advance tracks
 
@@ -44,7 +44,7 @@ Player mode uses local files served from `backend/data/media_cache/videos/` and 
 
 ## History Playback
 
-Song history is now playable:
+Song history is playable:
 - History entries are enriched with cached/downloaded video metadata
 - Click a playable history row to jump straight into Player mode
 - If a song is in history but not downloaded yet, the UI shows a clear message
@@ -76,9 +76,9 @@ All modes render with transparent backgrounds so the YouTube music video bleeds 
 | Artist Profiles | MusicBrainz genres, TheAudioDB/Wikipedia images, Pillow color extraction |
 | YouTube Search | `yt-dlp` (search + thumbnail caching) |
 | Video Download | `yt-dlp` (MP4 up to 1080p, progress tracking) |
-| Video Background | YouTube IFrame API (instant playback) → local MP4 (crossfade on download complete) |
+| Video Background | YouTube IFrame API (instant playback) -> local MP4 (crossfade on download complete) |
 | Media Textures | Three.js textures + Canvas image rendering from artist/album/YouTube media |
-| Playlists | JSON persistence, per-track metadata |
+| Data Layer | SQLite (WAL mode, single file) |
 | Frontend | React 19, Vite |
 | 3D Rendering | Three.js |
 
@@ -90,7 +90,7 @@ All modes render with transparent backgrounds so the YouTube music video bleeds 
 - Python 3.11+
 - Node.js 18+
 - Google Chrome (for the track detection extension)
-- `yt-dlp` installed and on PATH (for video search, thumbnails, and saving)
+- `yt-dlp` installed and on PATH (for YouTube search, thumbnails, and saving)
 
 ### Quick Start
 
@@ -103,7 +103,18 @@ cd ../frontend && npm install
 start.bat
 ```
 
-`start.bat` launches the backend, frontend, and opens the browser automatically.
+`start.bat` launches the backend, frontend dev server, and opens the browser automatically.
+
+### Production Build
+
+Build the frontend and run only the Python backend:
+
+```bash
+cd frontend && npm run build
+cd ../backend && python server.py
+```
+
+The backend serves the built frontend at `http://localhost:8766` and opens the browser automatically. No separate frontend server needed.
 
 ### Chrome Extension Setup
 
@@ -114,21 +125,21 @@ The extension reads track info from streaming sites. Install it once:
 3. Click **Load unpacked** and select the `extension/` folder
 4. The extension auto-activates on supported streaming sites
 
-### Manual Start
+### Manual Start (Dev)
 
 **Backend:**
 ```bash
 cd backend
 python -W ignore server.py
 ```
-Starts WebSocket on `ws://localhost:8765` and HTTP server on `http://localhost:8766`.
+Starts WebSocket on `ws://localhost:8765` and HTTP/API server on `http://localhost:8766`.
 
-**Frontend:**
+**Frontend (dev server with hot reload):**
 ```bash
 cd frontend
 npm run dev
 ```
-Opens at `http://localhost:5173`.
+Opens at `http://localhost:5173`. Connects to backend at `localhost:8765`/`8766`.
 
 ### Usage
 
@@ -156,39 +167,42 @@ Without this, the app still works — it just relies on the Windows media sessio
 
 ```
 backend/
-  server.py            — Audio capture, FFT, WebSocket, media polling, HTTP server (`/now-playing`, `/history/playable`, `/library`)
-  video_downloader.py  — YouTube video download with progress tracking (yt-dlp)
-  playlist_store.py    — Playlist CRUD and persistence (JSON)
-  artist_store.py      — Artist profile persistence, color extraction, genre mapping
-  fingerprinter.py     — Audio fingerprinting via AcoustID (optional)
-  history_store.py     — Song play history logging (JSON)
-  media_cache.py       — YouTube video search and thumbnail caching via yt-dlp
-  data/artists/        — Cached artist profiles (auto-generated)
-  data/history.json    — Play history log (auto-generated)
-  data/playlists.json  — Saved playlists (auto-generated)
-  data/media_cache/    — Cached thumbnails + downloaded videos (auto-generated)
+  server.py            - Audio capture, FFT, WebSocket, media polling, HTTP/static server
+  db.py                - SQLite database layer (WAL mode, auto-init)
+  video_downloader.py  - YouTube video download with progress tracking (yt-dlp)
+  playlist_store.py    - Playlist CRUD (SQLite)
+  artist_store.py      - Artist profile persistence, color extraction, genre mapping (SQLite)
+  fingerprinter.py     - Audio fingerprinting via AcoustID (optional)
+  history_store.py     - Song play history logging (SQLite)
+  media_cache.py       - YouTube video search and thumbnail caching via yt-dlp (SQLite)
+  choreography_store.py - Choreography data persistence (SQLite)
+  migrate_json_to_sqlite.py - One-time migration from legacy JSON files
+  data/
+    visualaudio.db     - All app data (auto-created)
+    media_cache/       - Cached thumbnails + downloaded videos (auto-generated)
 extension/
-  manifest.json        — Chrome extension manifest (Manifest V3)
-  content.js           — DOM scraper + MediaSession interceptor for streaming sites
+  manifest.json        - Chrome extension manifest (Manifest V3)
+  content.js           - DOM scraper + MediaSession interceptor for streaming sites
 frontend/
   src/
-    App.jsx            — Main app layout, mode switching
+    config.js               - Centralized API/WebSocket URL config (dev vs production)
+    App.jsx                 - Main app layout, mode switching
     components/
-      Visualizer.jsx        — 2D canvas visualizers (passes media assets)
-      ThreeVisualizer.jsx   — 3D Three.js visualizers (passes texture manager)
-      TrackInfo.jsx         — Track info overlay with genres, colors, save progress
-      ModeSelector.jsx      — Mode picker UI
-      YouTubeBackground.jsx — Video background (YouTube IFrame → local MP4 crossfade)
-      SongHistory.jsx       — Collapsible play history panel with playable rows
-      PlaylistPanel.jsx     — Offline playlist management panel
-      LibraryPanel.jsx      — Saved library + playlist playback panel (Player mode)
-      PlayerControls.jsx    — Transport controls (play/pause, seek, volume, next/prev)
+      Visualizer.jsx        - 2D canvas visualizers (passes media assets)
+      ThreeVisualizer.jsx   - 3D Three.js visualizers (passes texture manager)
+      TrackInfo.jsx         - Track info overlay with genres, colors, save progress
+      ModeSelector.jsx      - Mode picker UI
+      YouTubeBackground.jsx - Video background (YouTube IFrame -> local MP4 crossfade)
+      SongHistory.jsx       - Collapsible play history panel with playable rows
+      PlaylistPanel.jsx     - Offline playlist management panel
+      LibraryPanel.jsx      - Saved library + playlist playback panel (Player mode)
+      PlayerControls.jsx    - Transport controls (play/pause, seek, volume, next/prev)
     hooks/
-      useAudioWebSocket.js  — WebSocket data hook + `/now-playing` startup fallback
+      useAudioWebSocket.js  - WebSocket data hook + /now-playing startup fallback
     utils/
-      mediaTextureManager.js — Shared image/texture loading for all visualizers
-    visualizers/             — Individual visualizer implementations
-start.bat                — One-click launcher for backend + frontend
+      mediaTextureManager.js - Shared image/texture loading for all visualizers
+    visualizers/             - Individual visualizer implementations
+start.bat                - One-click launcher for backend + frontend (dev mode)
 ```
 
 ## Roadmap

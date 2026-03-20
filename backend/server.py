@@ -16,6 +16,9 @@ from winrt.windows.media.control import (
 )
 from winrt.windows.storage.streams import Buffer, InputStreamOptions
 
+import mimetypes
+import sys
+
 from db import get_db, init_db
 from fingerprinter import AudioFingerprinter, load_acoustid_key
 from artist_store import ArtistStore, enrich_artist_profile
@@ -32,6 +35,13 @@ WAVEFORM_POINTS = 128
 FPS = 30
 MEDIA_POLL_INTERVAL = 1.0
 EXTENSION_POLL_INTERVAL = 0.05
+
+# Resolve frontend static files directory.
+# PyInstaller bundles into sys._MEIPASS; otherwise look for ../frontend/dist
+if getattr(sys, '_MEIPASS', None):
+    FRONTEND_DIR = Path(sys._MEIPASS) / "frontend_dist"
+else:
+    FRONTEND_DIR = Path(__file__).parent.parent / "frontend" / "dist"
 
 
 def log_bin(fft_data, num_bins):
@@ -399,7 +409,7 @@ async def _handle_track_detected(artist, title, album, thumb_b64, source):
         "youtubeVideoId": cached_vid,
         "youtubeTitle": cached_yt.get("videoTitle", "") if cached_yt else "",
         "youtubeUrl": cached_yt.get("videoUrl", "") if cached_yt else "",
-        "youtubeThumbnailUrl": f"http://localhost:8766/media/thumbnails/{cached_vid}.jpg" if cached_vid else "",
+        "youtubeThumbnailUrl": f"/media/thumbnails/{cached_vid}.jpg" if cached_vid else "",
         "youtubeDuration": cached_yt.get("duration", 0) if cached_yt else 0,
         "videoDownloadStatus": dl_status,
     }
@@ -473,7 +483,7 @@ async def _fetch_youtube_data(artist, title):
                 "youtubeVideoId": video_id,
                 "youtubeTitle": result.get("videoTitle", ""),
                 "youtubeUrl": result.get("videoUrl", ""),
-                "youtubeThumbnailUrl": f"http://localhost:8766/media/thumbnails/{result['videoId']}.jpg",
+                "youtubeThumbnailUrl": f"/media/thumbnails/{result['videoId']}.jpg",
                 "youtubeDuration": result.get("duration", 0),
                 "videoDownloadStatus": video_downloader.get_status(video_id),
                 "_profileVersion": _profile_version,
@@ -834,6 +844,33 @@ class TrackHandler(BaseHTTPRequestHandler):
                 self.send_response(404)
                 self.end_headers()
         else:
+            self._serve_static()
+
+    def _serve_static(self):
+        """Serve built frontend files (SPA with index.html fallback)."""
+        url_path = self.path.split("?")[0].split("#")[0]
+        if url_path == "/":
+            url_path = "/index.html"
+        # Prevent path traversal
+        safe = Path(url_path.lstrip("/"))
+        if ".." in safe.parts:
+            self.send_response(403)
+            self.end_headers()
+            return
+        file_path = FRONTEND_DIR / safe
+        if not file_path.is_file():
+            # SPA fallback: serve index.html for client-side routes
+            file_path = FRONTEND_DIR / "index.html"
+        if file_path.is_file():
+            ct = mimetypes.guess_type(str(file_path))[0] or "application/octet-stream"
+            data = file_path.read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", ct)
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "public, max-age=3600")
+            self.end_headers()
+            self.wfile.write(data)
+        else:
             self.send_response(404)
             self.end_headers()
 
@@ -977,16 +1014,20 @@ async def download_progress_loop():
 
 
 async def main():
-    print("Starting audio visualizer backend...")
-    print("WebSocket server on ws://localhost:8765")
-    print("Extension HTTP server on http://localhost:8766")
+    print("Starting VisualAudioScraper...")
+    print(f"Frontend: http://localhost:8766  (serving from {FRONTEND_DIR})")
+    print("WebSocket: ws://localhost:8765")
     if fingerprinter.enabled:
         print("Audio fingerprinting: enabled")
     else:
         print("Audio fingerprinting: disabled (no ACOUSTID_API_KEY)")
 
-    # Start HTTP server for extension in a background thread
+    # Start HTTP server in a background thread
     threading.Thread(target=start_http_server, daemon=True).start()
+
+    # Auto-open browser
+    import webbrowser
+    webbrowser.open("http://localhost:8766")
 
     async with serve(handler, "localhost", 8765):
         await asyncio.gather(

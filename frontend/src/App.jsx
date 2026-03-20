@@ -10,6 +10,7 @@ import PlayerControls from './components/PlayerControls';
 import LibraryPanel from './components/LibraryPanel';
 import YouTubeBackground from './components/YouTubeBackground';
 import MediaTextureManager from './utils/mediaTextureManager';
+import { WS_URL, API_BASE } from './config';
 import './App.css';
 
 const THREE_D_MODES = new Set(['tunnel', 'galaxy', 'terrain', 'starfield']);
@@ -19,7 +20,7 @@ export default function App() {
   const [mode, setMode] = useState('video');
   const [showHistory, setShowHistory] = useState(false);
   const [showPlaylist, setShowPlaylist] = useState(false);
-  const { dataRef, connected, media, historyVersion } = useAudioWebSocket('ws://localhost:8765');
+  const { dataRef, connected, media, historyVersion } = useAudioWebSocket(WS_URL);
   const mediaManagerRef = useRef(new MediaTextureManager());
   const playerControlsRef = useRef(null);
   const playerQueueRef = useRef([]);
@@ -73,7 +74,7 @@ export default function App() {
       return;
     }
     // Load history and start from the beginning
-    fetch('http://localhost:8766/history/playable')
+    fetch(`${API_BASE}/history/playable`)
       .then(r => r.json())
       .then(history => {
         const playable = history.filter(e => e.isPlayable).map(e => ({
@@ -179,6 +180,7 @@ export default function App() {
       <LibraryPanel
         visible={showPlaylist && appMode === 'player'}
         onPlayTrack={playTrack}
+        onPlayFromLibrary={playFromHistory}
         onQueuePlaylist={queuePlaylist}
       />
       <PlayerControls

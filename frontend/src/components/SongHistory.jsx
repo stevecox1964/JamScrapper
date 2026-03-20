@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { API_BASE } from '../config';
 
 export default function SongHistory({ historyVersion, visible, onPlayFromHistory, activeVideoId }) {
   const [history, setHistory] = useState([]);
@@ -7,7 +8,7 @@ export default function SongHistory({ historyVersion, visible, onPlayFromHistory
 
   // Fetch on mount
   useEffect(() => {
-    fetch('http://localhost:8766/history/playable')
+    fetch(`${API_BASE}/history/playable`)
       .then((r) => r.json())
       .then(setHistory)
       .catch(() => {});
@@ -17,7 +18,7 @@ export default function SongHistory({ historyVersion, visible, onPlayFromHistory
   useEffect(() => {
     if (historyVersion !== lastVersion.current) {
       lastVersion.current = historyVersion;
-      fetch('http://localhost:8766/history/playable')
+      fetch(`${API_BASE}/history/playable`)
         .then((r) => r.json())
         .then(setHistory)
         .catch(() => {});

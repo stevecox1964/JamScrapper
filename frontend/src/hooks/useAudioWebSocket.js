@@ -1,6 +1,7 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
+import { WS_URL, API_BASE } from '../config';
 
-export default function useAudioWebSocket(url = 'ws://localhost:8765') {
+export default function useAudioWebSocket(url = WS_URL) {
   const dataRef = useRef({ fft: [], waveform: [], peak: 0, media: null });
   const wsRef = useRef(null);
   const [connected, setConnected] = useState(false);
@@ -86,7 +87,7 @@ export default function useAudioWebSocket(url = 'ws://localhost:8765') {
     let cancelled = false;
     const poll = async () => {
       try {
-        const res = await fetch('http://localhost:8766/now-playing');
+        const res = await fetch(`${API_BASE}/now-playing`);
         if (!res.ok) return;
         const data = await res.json();
         if (!cancelled) applyMedia(data.media);

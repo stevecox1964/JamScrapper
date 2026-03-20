@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { videoUrl } from '../config';
 
 let apiLoaded = false;
 let apiReady = false;
@@ -203,7 +204,7 @@ export default function YouTubeBackground({
     const vid = liveLocalVideoRef.current;
     if (!vid || !hasLocalLive || !videoId) return;
 
-    const src = `http://localhost:8766/media/videos/${videoId}.mp4`;
+    const src = videoUrl(videoId);
     if (vid.src !== src) {
       vid.src = src;
       vid.load();
@@ -216,7 +217,7 @@ export default function YouTubeBackground({
     if (!isPlayerMode || !nextPlayerVideoId) return;
     const inactive = activeSlotRef.current === 'a' ? playerVideoBRef.current : playerVideoARef.current;
     if (!inactive) return;
-    const preloadSrc = `http://localhost:8766/media/videos/${nextPlayerVideoId}.mp4`;
+    const preloadSrc = videoUrl(nextPlayerVideoId);
     if (inactive.dataset.src !== preloadSrc) {
       inactive.dataset.src = preloadSrc;
       inactive.src = preloadSrc;
@@ -240,7 +241,7 @@ export default function YouTubeBackground({
     const outgoing = activeSlotRef.current === 'a' ? playerVideoARef.current : playerVideoBRef.current;
     if (!incoming) return;
 
-    const src = `http://localhost:8766/media/videos/${playerVideoId}.mp4`;
+    const src = videoUrl(playerVideoId);
     const swapNow = () => {
       if (transitionTokenRef.current !== token) return;
       incoming.currentTime = 0;

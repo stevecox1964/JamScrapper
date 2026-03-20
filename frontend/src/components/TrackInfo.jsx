@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import ArtistSlideshow, { buildChoreographyPayload } from './ArtistSlideshow';
 
-const API_BASE = 'http://localhost:8766';
+import { API_BASE } from '../config';
 
 export default function TrackInfo({ media, hasVideo }) {
   const [visible, setVisible] = useState(false);

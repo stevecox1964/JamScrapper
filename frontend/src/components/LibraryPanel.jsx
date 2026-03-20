@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react';
+import { API_BASE as API } from '../config';
 
-const API = 'http://localhost:8766';
-
-export default function LibraryPanel({ visible, onPlayTrack, onQueuePlaylist }) {
+export default function LibraryPanel({ visible, onPlayTrack, onPlayFromLibrary, onQueuePlaylist }) {
   const [tracks, setTracks] = useState([]);
   const [playlists, setPlaylists] = useState([]);
   const [expandedId, setExpandedId] = useState('');
@@ -45,7 +44,10 @@ export default function LibraryPanel({ visible, onPlayTrack, onQueuePlaylist }) 
       <div className="library-section-title">Saved Tracks</div>
       <div className="library-list">
         {tracks.map((t) => (
-          <button key={t.videoId} className="library-track" onClick={() => onPlayTrack?.(t)}>
+          <button key={t.videoId} className="library-track" onClick={() => {
+            if (onPlayFromLibrary) onPlayFromLibrary(tracks, tracks.indexOf(t));
+            else onPlayTrack?.(t);
+          }}>
             <span className="library-track-title">{t.title || t.videoTitle || t.videoId}</span>
             <span className="library-track-artist">{t.artist || ''}</span>
           </button>
@@ -70,11 +72,14 @@ export default function LibraryPanel({ visible, onPlayTrack, onQueuePlaylist }) 
                 >
                   Play Playlist
                 </button>
-                {(expandedPlaylist.tracks || []).map((t) => (
+                {(expandedPlaylist.tracks || []).map((t, idx) => (
                   <button
                     key={t.videoId}
                     className="library-track"
-                    onClick={() => onPlayTrack?.(t)}
+                    onClick={() => {
+                      if (onPlayFromLibrary) onPlayFromLibrary(expandedPlaylist.tracks, idx);
+                      else onPlayTrack?.(t);
+                    }}
                   >
                     <span className="library-track-title">{t.title || t.videoTitle || t.videoId}</span>
                     <span className="library-track-artist">{t.artist || ''}</span>
