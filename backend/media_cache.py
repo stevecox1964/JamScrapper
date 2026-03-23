@@ -81,14 +81,22 @@ class MediaCache:
             self._download_thumbnail(video_id, entry["thumbnailUrl"])
             entry["localThumbnail"] = f"thumbnails/{video_id}.jpg"
 
-            # Save to SQLite
+            # Save to SQLite — use REPLACE keyed on (artist, title) so the
+            # same track always points to one video_id.  Delete any stale row
+            # for this artist+title first (there's no UNIQUE on that pair).
+            a_key = artist.lower().strip()
+            t_key = title.lower().strip()
             now = datetime.now(timezone.utc).isoformat()
+            self._conn.execute(
+                "DELETE FROM tracks WHERE artist = ? AND title = ?",
+                (a_key, t_key),
+            )
             self._conn.execute("""
                 INSERT OR IGNORE INTO tracks
                     (artist, title, video_id, video_title, channel, duration, thumbnail_url, video_url, created_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
-                artist.lower().strip(), title.lower().strip(), video_id,
+                a_key, t_key, video_id,
                 entry["videoTitle"], entry["channel"], entry["duration"],
                 entry["thumbnailUrl"], entry["videoUrl"], now,
             ))

@@ -20,7 +20,7 @@ export default function App() {
   const [mode, setMode] = useState('video');
   const [showHistory, setShowHistory] = useState(false);
   const [showPlaylist, setShowPlaylist] = useState(false);
-  const { dataRef, connected, media, historyVersion } = useAudioWebSocket(WS_URL);
+  const { dataRef, connected, media, historyVersion, refreshMedia } = useAudioWebSocket(WS_URL);
   const mediaManagerRef = useRef(new MediaTextureManager());
   const playerControlsRef = useRef(null);
   const playerQueueRef = useRef([]);
@@ -134,7 +134,7 @@ export default function App() {
         <div className="app-mode-toggle">
           <button
             className={appMode === 'live' ? 'active' : ''}
-            onClick={() => setAppMode('live')}
+            onClick={() => { setAppMode('live'); refreshMedia(); }}
           >
             Live
           </button>

@@ -15,7 +15,7 @@ export default function useAudioWebSocket(url = WS_URL) {
   const [historyVersion, setHistoryVersion] = useState(0);
   const rawThrottle = useRef(0);
 
-  const applyMedia = useCallback((nextMedia) => {
+  const applyMedia = useCallback((nextMedia, force = false) => {
     if (!nextMedia) return;
     const key = `${nextMedia.artist}|||${nextMedia.title}`;
     const profileVersion = nextMedia._profileVersion || 0;
@@ -24,7 +24,7 @@ export default function useAudioWebSocket(url = WS_URL) {
     const profileChanged = profileVersion !== lastProfileVersion.current;
     const videoChanged = nextVideoId !== lastVideoId.current;
 
-    if (trackChanged || profileChanged || videoChanged) {
+    if (force || trackChanged || profileChanged || videoChanged) {
       lastTrackKey.current = key;
       lastProfileVersion.current = profileVersion;
       lastVideoId.current = nextVideoId;
@@ -37,6 +37,12 @@ export default function useAudioWebSocket(url = WS_URL) {
       setHistoryVersion(hv);
     }
   }, []);
+
+  // Force-refresh media from the latest WebSocket data (e.g. after mode switch)
+  const refreshMedia = useCallback(() => {
+    const current = dataRef.current?.media;
+    if (current) applyMedia(current, true);
+  }, [applyMedia]);
 
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
@@ -101,5 +107,5 @@ export default function useAudioWebSocket(url = WS_URL) {
     };
   }, [applyMedia]);
 
-  return { dataRef, connected, media, rawMedia, historyVersion };
+  return { dataRef, connected, media, rawMedia, historyVersion, refreshMedia };
 }

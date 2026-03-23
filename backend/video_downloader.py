@@ -25,7 +25,15 @@ class VideoDownloader:
         row = self._conn.execute(
             "SELECT * FROM downloads WHERE video_id = ?", (video_id,)
         ).fetchone()
-        return self._row_to_dict(row) if row else None
+        if not row:
+            return None
+        status = self._row_to_dict(row)
+        # Cross-check: DB says completed but file is missing → mark failed
+        if status["state"] == "completed" and not self.is_downloaded(video_id):
+            self._update_status(video_id, state="failed", error="File missing from disk")
+            status["state"] = "failed"
+            status["error"] = "File missing from disk"
+        return status
 
     def get_all_status(self):
         rows = self._conn.execute(

@@ -387,10 +387,13 @@ async def _handle_track_detected(artist, title, album, thumb_b64, source):
     # Reset fingerprinter on track change
     fingerprinter.reset()
 
-    # Check for existing download status
+    # Check for existing download status (cross-checks file existence)
     cached_yt = media_cache.get_cached(artist, title)
     cached_vid = cached_yt.get("videoId", "") if cached_yt else ""
     dl_status = video_downloader.get_status(cached_vid) if cached_vid else None
+    # If file is actually on disk, trust that over DB
+    if cached_vid and not dl_status and video_downloader.is_downloaded(cached_vid):
+        dl_status = {"videoId": cached_vid, "state": "completed", "progress": 100}
 
     # IMMEDIATE broadcast — no blocking, user sees track info instantly
     media_info = {
@@ -751,10 +754,12 @@ class TrackHandler(BaseHTTPRequestHandler):
         elif self.path == "/library":
             completed = []
             for item in video_downloader.get_all_status():
-                if item.get("state") != "completed":
+                vid = item.get("videoId", "")
+                # Cross-check: only include if file actually exists
+                if item.get("state") != "completed" or not video_downloader.is_downloaded(vid):
                     continue
                 completed.append({
-                    "videoId": item.get("videoId", ""),
+                    "videoId": vid,
                     "artist": item.get("artist", ""),
                     "title": item.get("title", ""),
                     "videoTitle": item.get("videoTitle", ""),

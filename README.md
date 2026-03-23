@@ -205,6 +205,16 @@ frontend/
 start.bat                - One-click launcher for backend + frontend (dev mode)
 ```
 
+## Video Sync & Integrity
+
+The video pipeline includes multiple integrity checks to keep everything in sync:
+
+- **File cross-check** — If the database says a video is downloaded but the file is missing, the status auto-corrects (no phantom "Downloaded" badges)
+- **Cache dedup** — Each `(artist, title)` maps to exactly one video ID. Stale duplicate cache entries are cleaned up automatically
+- **Library filtering** — The library and playlist endpoints only return tracks whose files actually exist on disk
+- **Player error recovery** — If a local MP4 fails to load in Player mode, it skips to the next track instead of showing a black screen
+- **Track fade-out** — Videos fade out (both audio and video) in the last 3 seconds before the next track starts
+
 ## Roadmap
 
 - Beat detection for pulse/flash effects

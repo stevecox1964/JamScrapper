@@ -80,6 +80,8 @@ export default function YouTubeBackground({
   const [localReady, setLocalReady] = useState(false);
   const [localFailed, setLocalFailed] = useState(false);
   const [playerActiveSlot, setPlayerActiveSlot] = useState('a');
+  const [fadeOut, setFadeOut] = useState(0); // 0 = full, 1 = fully faded
+  const FADE_DURATION = 3; // seconds before end to start fading
 
   const isPlayerMode = appMode === 'player';
   const playerVideoId = playerTrack?.videoId || '';
@@ -246,6 +248,8 @@ export default function YouTubeBackground({
       if (transitionTokenRef.current !== token) return;
       incoming.currentTime = 0;
       incoming.muted = false;
+      incoming.volume = 1;
+      setFadeOut(0);
       incoming.play().catch(() => {});
       outgoing?.pause?.();
       activeSlotRef.current = nextSlot;
@@ -286,14 +290,35 @@ export default function YouTubeBackground({
     }
   };
 
+  const handlePlayerError = (e) => {
+    const vid = e.target;
+    if (!vid?.src) return;
+    console.warn('Player video failed to load, skipping to next track:', vid.src);
+    // Skip to next track when local MP4 fails in player mode
+    if (isPlayerMode) onTrackEnded?.();
+  };
+
   const handleTimeUpdate = () => {
-    if (!onPlayerState || !isPlayerMode) return;
+    if (!isPlayerMode) return;
     const v = activeSlotRef.current === 'a' ? playerVideoARef.current : playerVideoBRef.current;
     if (!v) return;
-    onPlayerState({
+    const currentTime = Number(v.currentTime || 0);
+    const duration = Number(v.duration || 0);
+    const remaining = duration - currentTime;
+
+    // Fade out video + audio in last FADE_DURATION seconds
+    if (duration > FADE_DURATION && remaining <= FADE_DURATION && remaining > 0) {
+      const fade = 1 - remaining / FADE_DURATION; // 0→1
+      setFadeOut(fade);
+      v.volume = Math.max(0, 1 - fade);
+    } else if (fadeOut !== 0) {
+      setFadeOut(0);
+    }
+
+    onPlayerState?.({
       playing: !v.paused && !v.ended,
-      currentTime: Number(v.currentTime || 0),
-      duration: Number(v.duration || 0),
+      currentTime,
+      duration,
       volume: Number(v.volume || 1),
     });
   };
@@ -329,10 +354,11 @@ export default function YouTubeBackground({
         loop={false}
         playsInline
         className="local-video"
-        style={{ opacity: showPlayerAVideo ? 1 : 0 }}
+        style={{ opacity: showPlayerAVideo ? 1 - fadeOut : 0, transition: 'opacity 0.15s ease' }}
         onEnded={() => {
           if (isPlayerMode && playerActiveSlot === 'a') onTrackEnded?.();
         }}
+        onError={handlePlayerError}
         onTimeUpdate={handleTimeUpdate}
         onPlay={handleTimeUpdate}
         onPause={handleTimeUpdate}
@@ -344,10 +370,11 @@ export default function YouTubeBackground({
         loop={false}
         playsInline
         className="local-video"
-        style={{ opacity: showPlayerBVideo ? 1 : 0 }}
+        style={{ opacity: showPlayerBVideo ? 1 - fadeOut : 0, transition: 'opacity 0.15s ease' }}
         onEnded={() => {
           if (isPlayerMode && playerActiveSlot === 'b') onTrackEnded?.();
         }}
+        onError={handlePlayerError}
         onTimeUpdate={handleTimeUpdate}
         onPlay={handleTimeUpdate}
         onPause={handleTimeUpdate}
