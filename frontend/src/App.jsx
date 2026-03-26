@@ -33,6 +33,7 @@ export default function App() {
     duration: 0,
     volume: 1,
   });
+  const playerStateRestoredRef = useRef(false);
 
   useEffect(() => {
     if (media) mediaManagerRef.current.update(media);
@@ -45,6 +46,42 @@ export default function App() {
   useEffect(() => {
     playerQueueRef.current = playerQueue;
   }, [playerQueue]);
+
+  // Restore player state from backend on mount
+  useEffect(() => {
+    fetch(`${API_BASE}/player-state`)
+      .then(r => r.json())
+      .then(state => {
+        if (state?.queue?.length) {
+          setPlayerQueue(state.queue);
+          setPlayerIndex(state.queueIndex || 0);
+          setPlayerState(prev => ({ ...prev, volume: state.volume ?? 1 }));
+          playerStateRestoredRef.current = true;
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  // Save player state to backend when queue/index/volume changes
+  const saveTimerRef = useRef(null);
+  useEffect(() => {
+    if (!playerQueue.length) return;
+    clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      fetch(`${API_BASE}/player-state`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          queue: playerQueue,
+          queueIndex: playerIndex,
+          currentTime: playerState.currentTime,
+          volume: playerState.volume,
+          playing: playerState.playing,
+        }),
+      }).catch(() => {});
+    }, 2000);
+    return () => clearTimeout(saveTimerRef.current);
+  }, [playerQueue, playerIndex, playerState.currentTime, playerState.volume]);
 
   const is3D = THREE_D_MODES.has(mode);
   const currentPlayerTrack = playerQueue[playerIndex] || null;
@@ -118,7 +155,7 @@ export default function App() {
     ? {
       artist: currentPlayerTrack.artist || '',
       title: currentPlayerTrack.title || currentPlayerTrack.videoTitle || '',
-      album: '',
+      album: currentPlayerTrack.album || '',
       albumArt: null,
       artistImages: [],
       dominantColors: [],

@@ -65,13 +65,13 @@ export default function TrackInfo({ media, hasVideo }) {
           <img src={albumArt} alt="Album art" className="album-art" />
         )}
         <div className="track-text">
-          <div className="track-title">{media.title}</div>
           <div
             className="track-artist"
             style={accentColor ? { color: accentColor } : undefined}
           >
             {media.artist}
           </div>
+          <div className="track-title">Playing — {media.title}</div>
           {media.album && (
             <div className="track-album">{media.album}</div>
           )}
@@ -100,7 +100,7 @@ export default function TrackInfo({ media, hasVideo }) {
           )}
           {dl && dl.state === 'completed' && (
             <span className="download-complete">
-              Saved ({dl.fileSizeMB?.toFixed(1)} MB)
+              {dl.fileSizeMB ? `Saved (${dl.fileSizeMB.toFixed(1)} MB)` : 'Saved'}
             </span>
           )}
         </div>

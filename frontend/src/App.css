@@ -4,7 +4,7 @@
   --accent: #00e5ff;
   --accent-3d: #7b2ff7;
   --text: #e0e0e0;
-  --text-dim: #666;
+  --text-dim: #999;
 }
 
 * {
@@ -45,7 +45,7 @@ body {
 }
 
 .mode-group-label {
-  font-size: 10px;
+  font-size: 14px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 1px;
@@ -64,10 +64,10 @@ body {
   background: transparent;
   border: 1px solid #333;
   color: var(--text);
-  padding: 6px 16px;
+  padding: 8px 18px;
   border-radius: 20px;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 16px;
   font-weight: 500;
   transition: all 0.2s ease;
   user-select: none;
@@ -99,9 +99,9 @@ body {
 }
 
 .status {
-  font-size: 11px;
-  padding: 4px 10px;
-  border-radius: 12px;
+  font-size: 14px;
+  padding: 6px 12px;
+  border-radius: 14px;
   font-weight: 500;
 }
 
@@ -201,12 +201,12 @@ body {
   z-index: 20;
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 12px 18px 12px 12px;
-  background: rgba(10, 10, 15, 0.75);
+  gap: 18px;
+  padding: 16px 24px 16px 16px;
+  background: rgba(10, 10, 15, 0.85);
   backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 16px;
   opacity: 0;
   transform: translateY(20px);
   transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
@@ -218,9 +218,9 @@ body {
 }
 
 .album-art {
-  width: 52px;
-  height: 52px;
-  border-radius: 8px;
+  width: 72px;
+  height: 72px;
+  border-radius: 10px;
   object-fit: cover;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.5);
 }
@@ -228,28 +228,28 @@ body {
 .track-text {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
   min-width: 0;
 }
 
 .track-title {
-  font-size: 14px;
+  font-size: 20px;
   font-weight: 600;
   color: #fff;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 280px;
+  max-width: 400px;
 }
 
 .track-artist {
-  font-size: 12px;
+  font-size: 16px;
   color: var(--accent);
   font-weight: 500;
 }
 
 .track-album {
-  font-size: 11px;
+  font-size: 14px;
   color: var(--text-dim);
 }
 
@@ -261,19 +261,19 @@ body {
 }
 
 .genre-tag {
-  font-size: 9px;
-  padding: 1px 6px;
+  font-size: 12px;
+  padding: 2px 8px;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.1);
   color: var(--text-dim);
   text-transform: lowercase;
   letter-spacing: 0.3px;
 }
 
 .detection-badge {
-  font-size: 9px;
+  font-size: 12px;
   color: var(--text-dim);
-  opacity: 0.6;
+  opacity: 0.7;
   font-style: italic;
   margin-top: 2px;
 }
@@ -283,10 +283,10 @@ body {
   background: transparent;
   border: 1px solid #333;
   color: var(--text-dim);
-  padding: 4px 10px;
-  border-radius: 12px;
+  padding: 8px 14px;
+  border-radius: 16px;
   cursor: pointer;
-  font-size: 10px;
+  font-size: 14px;
 }
 
 .app-mode-toggle {
@@ -302,9 +302,9 @@ body {
   background: transparent;
   color: var(--text-dim);
   border-radius: 999px;
-  padding: 4px 10px;
+  padding: 8px 14px;
   cursor: pointer;
-  font-size: 10px;
+  font-size: 14px;
 }
 
 .app-mode-toggle button.active {

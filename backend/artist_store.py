@@ -123,6 +123,39 @@ def fetch_genres_from_musicbrainz(artist_name):
         return [], ""
 
 
+# ---------- MusicBrainz album fetch ----------
+
+def fetch_album_from_musicbrainz(artist_name, title):
+    """Look up the album (release) for a specific song via MusicBrainz recording search."""
+    try:
+        resp = requests.get(
+            f"{MUSICBRAINZ_BASE}/recording",
+            params={
+                "query": f'recording:"{title}" AND artist:"{artist_name}"',
+                "fmt": "json",
+                "limit": 1,
+            },
+            headers=MUSICBRAINZ_HEADERS,
+            timeout=8,
+        )
+        resp.raise_for_status()
+        recordings = resp.json().get("recordings", [])
+        if not recordings:
+            return ""
+        # Get the first release (album) from the top recording match
+        releases = recordings[0].get("releases", [])
+        if not releases:
+            return ""
+        # Prefer albums over singles — look for one with a status of "Official"
+        for rel in releases:
+            if rel.get("status") == "Official":
+                return rel.get("title", "")
+        return releases[0].get("title", "")
+    except Exception as e:
+        print(f"MusicBrainz album lookup error: {e}")
+        return ""
+
+
 # ---------- Mood/visualizer derivation ----------
 
 def derive_mood_tags(genres):

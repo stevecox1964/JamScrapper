@@ -299,8 +299,13 @@ export default function YouTubeBackground({
   };
 
   const handleTimeUpdate = () => {
-    if (!isPlayerMode) return;
-    const v = activeSlotRef.current === 'a' ? playerVideoARef.current : playerVideoBRef.current;
+    // Determine which video element to check
+    let v;
+    if (isPlayerMode) {
+      v = activeSlotRef.current === 'a' ? playerVideoARef.current : playerVideoBRef.current;
+    } else {
+      v = liveLocalVideoRef.current;
+    }
     if (!v) return;
     const currentTime = Number(v.currentTime || 0);
     const duration = Number(v.duration || 0);
@@ -310,17 +315,19 @@ export default function YouTubeBackground({
     if (duration > FADE_DURATION && remaining <= FADE_DURATION && remaining > 0) {
       const fade = 1 - remaining / FADE_DURATION; // 0→1
       setFadeOut(fade);
-      v.volume = Math.max(0, 1 - fade);
+      if (!v.muted) v.volume = Math.max(0, 1 - fade);
     } else if (fadeOut !== 0) {
       setFadeOut(0);
     }
 
-    onPlayerState?.({
-      playing: !v.paused && !v.ended,
-      currentTime,
-      duration,
-      volume: Number(v.volume || 1),
-    });
+    if (isPlayerMode) {
+      onPlayerState?.({
+        playing: !v.paused && !v.ended,
+        currentTime,
+        duration,
+        volume: Number(v.volume || 1),
+      });
+    }
   };
 
   const showYouTubeLayer = !isPlayerMode && !showLocalLive;
@@ -342,9 +349,10 @@ export default function YouTubeBackground({
         playsInline
         autoPlay
         className="local-video"
-        style={{ opacity: showLiveLocalLayer ? 1 : 0 }}
+        style={{ opacity: showLiveLocalLayer ? 1 - fadeOut : 0, transition: 'opacity 0.15s ease' }}
         onCanPlay={handleLiveCanPlay}
         onError={handleLiveError}
+        onTimeUpdate={handleTimeUpdate}
       />
 
       {/* Player mode active/preload pair */}

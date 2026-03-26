@@ -21,12 +21,13 @@ import sys
 
 from db import get_db, init_db
 from fingerprinter import AudioFingerprinter, load_acoustid_key
-from artist_store import ArtistStore, enrich_artist_profile
+from artist_store import ArtistStore, enrich_artist_profile, fetch_album_from_musicbrainz
 from history_store import HistoryStore
 from media_cache import MediaCache
 from video_downloader import VideoDownloader
 from playlist_store import PlaylistStore
 from choreography_store import ChoreographyStore
+from player_state_store import PlayerStateStore
 
 SAMPLE_RATE = 44100
 BLOCK_SIZE = 2048
@@ -116,6 +117,7 @@ media_cache = MediaCache(_db_conn)
 video_downloader = VideoDownloader(_db_conn)
 playlist_store = PlaylistStore(_db_conn)
 choreography_store = ChoreographyStore(_db_conn)
+player_state_store = PlayerStateStore(_db_conn)
 
 
 # Known streaming services and their tab title patterns
@@ -373,6 +375,10 @@ async def _handle_track_detected(artist, title, album, thumb_b64, source):
     track_key = f"{artist}|||{title}"
     if track_key == _last_track_key:
         _last_track_seen_at = asyncio.get_running_loop().time()
+        # Same track — but update album if it just became available
+        if album and not media_info.get("album"):
+            media_info = {**media_info, "album": album}
+            print(f"  >> Album updated: {album}")
         return  # Same track, skip
 
     _last_track_key = track_key
@@ -444,6 +450,18 @@ async def _enrich_track(artist, title, album, thumb_b64):
         }
     except Exception as e:
         print(f"  Image fetch error: {e}")
+
+    # Album lookup via MusicBrainz if not already known
+    if not album and artist and title:
+        try:
+            mb_album = await asyncio.to_thread(fetch_album_from_musicbrainz, artist, title)
+            if mb_album:
+                album = mb_album
+                _profile_version += 1
+                media_info = {**media_info, "album": album, "_profileVersion": _profile_version}
+                print(f"  Album (MusicBrainz): {album}")
+        except Exception as e:
+            print(f"  Album lookup error: {e}")
 
     # Profile enrichment (genres, colors, moods)
     try:
@@ -794,6 +812,10 @@ class TrackHandler(BaseHTTPRequestHandler):
                 self.send_response(404)
                 self.end_headers()
 
+        elif self.path == "/player-state":
+            state = player_state_store.load()
+            self._json_response(state or {})
+
         elif self.path.startswith("/media/videos/"):
             # Serve MP4 with Range support for seeking
             relative = self.path[len("/media/"):]
@@ -887,6 +909,11 @@ class TrackHandler(BaseHTTPRequestHandler):
             title = (body.get("title") or "").strip()
             album = (body.get("album") or "").strip()
             if artist or title:
+                # Preserve album from prior send if this one is empty (DOM poll has no album)
+                if not album and _extension_track and _extension_track.get("album"):
+                    prev = _extension_track
+                    if prev["artist"] == artist and prev["title"] == title:
+                        album = prev["album"]
                 _extension_track = {"artist": artist, "title": title, "album": album}
                 print(f"  [EXT] Received: {artist} - {title}")
             self.send_response(200)
@@ -965,6 +992,17 @@ class TrackHandler(BaseHTTPRequestHandler):
                 self.send_response(400)
                 self.end_headers()
 
+        elif self.path == "/player-state":
+            body = self._read_body()
+            player_state_store.save(
+                queue=body.get("queue", []),
+                queue_index=body.get("queueIndex", 0),
+                current_time=body.get("currentTime", 0),
+                volume=body.get("volume", 1),
+                playing=body.get("playing", False),
+            )
+            self._json_response({"ok": True})
+
         else:
             self.send_response(404)
             self.end_headers()
@@ -1007,8 +1045,21 @@ async def download_progress_loop():
         if not current_vid:
             continue
         status = video_downloader.get_status(current_vid)
-        if status and status.get("state") == "downloading":
-            old_progress = (media_info.get("videoDownloadStatus") or {}).get("progress", -1)
+        if not status:
+            # File on disk but no DB record — show as completed
+            if video_downloader.is_downloaded(current_vid):
+                from pathlib import Path
+                size_mb = round((video_downloader.video_dir / f"{current_vid}.mp4").stat().st_size / (1024 * 1024), 1)
+                status = {"videoId": current_vid, "state": "completed", "progress": 100, "fileSizeMB": size_mb}
+            else:
+                continue
+        # If DB says downloading but file already exists on disk, correct to completed
+        if status.get("state") == "downloading" and video_downloader.is_downloaded(current_vid):
+            size_mb = round((video_downloader.video_dir / f"{current_vid}.mp4").stat().st_size / (1024 * 1024), 1)
+            status = {"videoId": current_vid, "state": "completed", "progress": 100, "fileSizeMB": size_mb}
+        old_status = media_info.get("videoDownloadStatus") or {}
+        if status.get("state") == "downloading":
+            old_progress = old_status.get("progress", -1)
             if status.get("progress", 0) != old_progress:
                 _profile_version += 1
                 media_info = {
@@ -1016,6 +1067,13 @@ async def download_progress_loop():
                     "videoDownloadStatus": status,
                     "_profileVersion": _profile_version,
                 }
+        elif status.get("state") != old_status.get("state"):
+            _profile_version += 1
+            media_info = {
+                **media_info,
+                "videoDownloadStatus": status,
+                "_profileVersion": _profile_version,
+            }
 
 
 async def main():
@@ -1030,11 +1088,11 @@ async def main():
     # Start HTTP server in a background thread
     threading.Thread(target=start_http_server, daemon=True).start()
 
-    # Auto-open browser
-    import webbrowser
-    webbrowser.open("http://localhost:8766")
-
     async with serve(handler, "localhost", 8765):
+        print("WebSocket ready — opening browser...")
+        import webbrowser
+        webbrowser.open("http://localhost:8766")
+
         await asyncio.gather(
             audio_capture_loop(),
             broadcast_loop(),

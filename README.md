@@ -11,7 +11,7 @@ The backend also identifies what's playing via three methods:
 - **Windows media session** — reads "Now Playing" metadata from apps that expose it (Spotify desktop, YouTube Music, etc.)
 - **Audio fingerprinting** (optional) — identifies songs from the audio signal via AcoustID/Chromaprint
 
-When an artist is detected, the system fetches images, extracts dominant colors, pulls genre tags from MusicBrainz, and builds a persistent artist profile stored in SQLite. Next time that artist plays, the profile loads instantly.
+When an artist is detected, the system fetches images, extracts dominant colors, pulls genre tags from MusicBrainz, looks up the album via MusicBrainz recording search, and builds a persistent artist profile stored in SQLite. Next time that artist plays, the profile loads instantly.
 
 Every visualizer is infused with media — artist images, album art, and YouTube thumbnails replace plain geometric shapes. A YouTube music video plays as a background layer behind all modes, starting instantly via YouTube's IFrame API. Videos are automatically saved locally in the background as they play. Once a video finishes downloading, playback seamlessly crossfades to the local copy — no buffering, no interruptions.
 
@@ -41,6 +41,8 @@ JamScrapper supports two workflows:
 - **Player mode** — play saved local videos with audio, queue playlists, and auto-advance tracks
 
 Player mode uses local files served from `backend/data/media_cache/videos/` and keeps the visualizer overlay on top so future FX can be layered over playback.
+
+Player state (queue, position, volume) is persisted to SQLite — reloading the page or restarting the app picks up right where you left off.
 
 ## History Playback
 
@@ -73,7 +75,7 @@ All modes render with transparent backgrounds so the YouTube music video bleeds 
 | Transport | WebSocket at ~30fps |
 | Media Detection | Chrome extension (DOM scraping + MediaSession), `winrt` (Windows "Now Playing") |
 | Audio Fingerprinting | `pyacoustid` / Chromaprint (optional) |
-| Artist Profiles | MusicBrainz genres, TheAudioDB/Wikipedia images, Pillow color extraction |
+| Artist Profiles | MusicBrainz genres + album lookup, TheAudioDB/Wikipedia images, Pillow color extraction |
 | YouTube Search | `yt-dlp` (search + thumbnail caching) |
 | Video Download | `yt-dlp` (MP4 up to 1080p, progress tracking) |
 | Video Background | YouTube IFrame API (instant playback) -> local MP4 (crossfade on download complete) |
@@ -103,7 +105,7 @@ cd ../frontend && npm install
 start.bat
 ```
 
-`start.bat` launches the backend, frontend dev server, and opens the browser automatically.
+`start.bat` cleans up any stale processes on the required ports, then launches the backend, frontend dev server, and opens the browser automatically.
 
 ### Production Build
 
@@ -176,6 +178,7 @@ backend/
   history_store.py     - Song play history logging (SQLite)
   media_cache.py       - YouTube video search and thumbnail caching via yt-dlp (SQLite)
   choreography_store.py - Choreography data persistence (SQLite)
+  player_state_store.py - Player mode state persistence (queue, position, volume)
   migrate_json_to_sqlite.py - One-time migration from legacy JSON files
   data/
     visualaudio.db     - All app data (auto-created)
@@ -213,7 +216,7 @@ The video pipeline includes multiple integrity checks to keep everything in sync
 - **Cache dedup** — Each `(artist, title)` maps to exactly one video ID. Stale duplicate cache entries are cleaned up automatically
 - **Library filtering** — The library and playlist endpoints only return tracks whose files actually exist on disk
 - **Player error recovery** — If a local MP4 fails to load in Player mode, it skips to the next track instead of showing a black screen
-- **Track fade-out** — Videos fade out (both audio and video) in the last 3 seconds before the next track starts
+- **Track fade-out** — Videos fade out (both audio and video) in the last 3 seconds before the next track starts, in both Player and Live modes
 
 ## Roadmap
 

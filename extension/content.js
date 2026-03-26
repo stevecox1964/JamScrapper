@@ -1,16 +1,22 @@
 // Intercept MediaSession metadata + poll DOM for player info
 const BACKEND = "http://localhost:8766/track";
 let lastSent = "";
+let lastAlbum = "";
 
 function send(artist, title, album, artwork) {
   const key = `${artist}|||${title}`;
-  if (key === lastSent || (!artist && !title)) return;
+  // If same track, use best known album (MediaSession may have sent it earlier)
+  if (!album && key === lastSent && lastAlbum) album = lastAlbum;
+  // Allow re-send if album became available (e.g. MediaSession fired after DOM poll)
+  const albumUpgrade = album && !lastAlbum && key === lastSent;
+  if ((!albumUpgrade && key === lastSent) || (!artist && !title)) return;
   fetch(BACKEND, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ artist, title, album, artwork }),
   }).then(() => {
     lastSent = key; // Only mark sent on success so we retry if backend was down
+    lastAlbum = album || "";
   }).catch(() => {});
 }
 
