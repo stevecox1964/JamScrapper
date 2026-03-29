@@ -33,6 +33,24 @@ class VideoDownloader:
             self._update_status(video_id, state="failed", error="File missing from disk")
             status["state"] = "failed"
             status["error"] = "File missing from disk"
+        # Cross-check: DB says downloading/queued but file actually exists → mark completed
+        elif status["state"] in ("downloading", "queued"):
+            if self.is_downloaded(video_id):
+                vid_path = self.video_dir / f"{video_id}.mp4"
+                size_mb = round(vid_path.stat().st_size / (1024 * 1024), 1)
+                self._update_status(
+                    video_id, state="completed", progress=100,
+                    file_size_mb=size_mb,
+                    completed_at=datetime.now(timezone.utc).isoformat(),
+                )
+                status["state"] = "completed"
+                status["progress"] = 100
+                status["fileSizeMB"] = size_mb
+            else:
+                # Stale download (backend was restarted mid-download) → clear so it can retry
+                self._conn.execute("DELETE FROM downloads WHERE video_id = ?", (video_id,))
+                self._conn.commit()
+                return None
         return status
 
     def get_all_status(self):
