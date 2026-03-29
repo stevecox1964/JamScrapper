@@ -21,7 +21,6 @@
 - Playlist CRUD, library panel
 
 ### What's Fragile
-- All data in flat JSON files (history, playlists, youtube_cache, download_status, artist data, choreography)
 - `soundcard` requires WASAPI = Windows only, cannot run in a standard Docker container
 - WinRT media session = Windows only
 - Chrome window title scraping = Windows only
@@ -29,9 +28,11 @@
 
 ---
 
-## Phase 1 — Data Layer: JSON to SQLite
+## Phase 1 — Data Layer: JSON to SQLite (COMPLETE)
 
 **Goal**: Replace every JSON file with a single SQLite database. Zero behavior change, but unlocks everything after.
+
+**Status**: Done. All data lives in `backend/data/visualaudio.db` (WAL mode). JSON files eliminated.
 
 ### Tables
 | Table | Replaces | Key Fields |
@@ -200,28 +201,30 @@
 ## Dependency Map
 
 ```
-Phase 1 (SQLite)
-  └── Phase 2 (Docker) ─── requires Phase 1 (no JSON files)
+Phase 1 (SQLite) ✅ COMPLETE
+  └── Phase 2 (Docker) ─── unlocked by Phase 1
         └── Phase 5 (Platform) ─── requires Phase 2 (containerized)
-  └── Phase 4 (Brain) ─── requires Phase 1 (queryable history)
+  └── Phase 4 (Brain) ─── unlocked by Phase 1 (queryable history)
 
-Phase 3 (Player) ─── independent, can start now
+Phase 3 (Player) ─── independent, in progress
 ```
 
-**Phase 1 and Phase 3 can run in parallel.** Phase 2 needs Phase 1. Phase 4 needs Phase 1. Phase 5 needs Phase 2.
+**Phase 1 is done.** Phase 2 and Phase 4 are now unblocked. Phase 3 is in progress. Phase 5 needs Phase 2.
 
 ---
 
-## Current JSON → SQLite File Map
+## Completed JSON → SQLite Migration
 
-| JSON File | Location | New Table |
-|-----------|----------|-----------|
-| `history.json` | `backend/data/` | `play_history` + `tracks` |
-| `playlists.json` | `backend/data/` | `playlists` + `playlist_tracks` |
-| `youtube_cache.json` | `backend/data/media_cache/` | `tracks` |
-| `download_status.json` | `backend/data/media_cache/` | `downloads` |
-| `choreography.json` | `backend/data/` | `choreography` |
-| `{artist-slug}.json` | `backend/data/artists/` | `artists` |
+All data now lives in `backend/data/visualaudio.db`:
+
+| Former JSON File | SQLite Table |
+|------------------|-------------|
+| `history.json` | `play_history` + `tracks` |
+| `playlists.json` | `playlists` + `playlist_tracks` |
+| `youtube_cache.json` | `tracks` |
+| `download_status.json` | `downloads` |
+| `choreography.json` | `choreography` |
+| `{artist-slug}.json` | `artists` |
 
 ---
 

@@ -399,7 +399,9 @@ async def _handle_track_detected(artist, title, album, thumb_b64, source):
     dl_status = video_downloader.get_status(cached_vid) if cached_vid else None
     # If file is actually on disk, trust that over DB
     if cached_vid and not dl_status and video_downloader.is_downloaded(cached_vid):
-        dl_status = {"videoId": cached_vid, "state": "completed", "progress": 100}
+        vid_path = video_downloader.video_dir / f"{cached_vid}.mp4"
+        size_mb = round(vid_path.stat().st_size / (1024 * 1024), 1)
+        dl_status = {"videoId": cached_vid, "state": "completed", "progress": 100, "fileSizeMB": size_mb}
 
     # IMMEDIATE broadcast — no blocking, user sees track info instantly
     media_info = {

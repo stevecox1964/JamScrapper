@@ -9,7 +9,7 @@
 - Seamless crossfade from YouTube stream to local MP4 when download completes
 - Cached videos load instantly on repeat plays
 - Download progress shown in track info overlay
-- Offline playlist system (create, manage, persist as JSON)
+- Offline playlist system (create, manage, persist in SQLite)
 - Player mode for local video playback with audio
 - Library panel for browsing saved tracks and playlist queue playback
 - Player controls (play/pause, seek, volume, next/prev)
@@ -27,6 +27,7 @@
 - Backend `/now-playing` snapshot endpoint for startup sync
 - Backend `/history/playable` endpoint for history-to-player flow
 - Faster live detection/transition cadence (WinRT + extension polling tuned)
+- Download status shows correct file size for orphaned videos (file on disk, no DB record)
 
 ## Known Limitations
 - Chrome extension must be installed manually (Developer mode, Load unpacked)
