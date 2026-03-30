@@ -425,6 +425,7 @@ body {
 
 .download-text { color: var(--accent); }
 .download-complete { color: #00ff88; font-size: 9px; margin-top: 4px; }
+.download-not-saved { color: #ff8800; font-size: 9px; margin-top: 4px; opacity: 0.7; }
 
 /* Local video playback — crossfades with YouTube IFrame */
 .youtube-bg .local-video {

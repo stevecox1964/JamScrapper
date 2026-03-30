@@ -98,11 +98,13 @@ export default function TrackInfo({ media, hasVideo }) {
               <span className="download-text">Saving {dl.progress}%</span>
             </div>
           )}
-          {dl && dl.state === 'completed' && (
+          {dl && dl.state === 'completed' ? (
             <span className="download-complete">
               {dl.fileSizeMB ? `Saved (${dl.fileSizeMB.toFixed(1)} MB)` : 'Saved'}
             </span>
-          )}
+          ) : media.youtubeVideoId && (!dl || dl.state !== 'downloading') ? (
+            <span className="download-not-saved">Not saved</span>
+          ) : null}
         </div>
       </div>
     </>
