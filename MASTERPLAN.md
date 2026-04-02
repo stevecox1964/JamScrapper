@@ -13,10 +13,9 @@
 - Live audio capture via WASAPI loopback (Windows-only `soundcard` lib)
 - Chrome extension + WinRT media session for track detection
 - 4 x 2D visualizers, 4 x 3D visualizers (Three.js)
-- YouTube video background (downloaded MP4 + IFrame fallback)
+- YouTube video background (IFrame API — live mode muted loop, player mode unmuted stream)
 - Auto-enrichment pipeline: TheAudioDB/Wikipedia images, MusicBrainz genres, Pillow colors, YouTube search
-- Auto-download of music videos via yt-dlp
-- Player mode with queue, prev/next, seek, volume, "up next"
+- Player mode with queue, prev/next, seek, volume, "up next" (streams from YouTube, no local downloads)
 - History panel with click-to-play-from-here
 - Playlist CRUD, library panel
 
@@ -135,9 +134,8 @@
 - Media Session API integration (OS media controls, lock screen on mobile)
 
 ### 3d. Audio-Only Mode
-- Not every track needs a video. Support audio-only downloads (smaller, faster).
-- `yt-dlp` already supports `bestaudio` — add a preference toggle.
-- Visualizers become the primary visual when no video exists.
+- Not every track needs a video. When no YouTube result exists, visualizers are the primary visual.
+- Future: stream audio-only via YouTube IFrame for tracks where video isn't useful.
 
 ---
 

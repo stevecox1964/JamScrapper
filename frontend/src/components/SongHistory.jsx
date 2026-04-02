@@ -38,7 +38,7 @@ export default function SongHistory({ historyVersion, visible, onPlayFromHistory
             className={`history-entry history-entry-btn${entry.isPlayable ? ' playable' : ''}${activeVideoId && entry.videoId === activeVideoId ? ' now-playing' : ''}`}
             onClick={() => {
               if (!entry.isPlayable) {
-                setInfo('This song is in history but not downloaded yet.');
+                setInfo('No YouTube video found for this track.');
                 window.setTimeout(() => setInfo(''), 2000);
                 return;
               }
@@ -48,14 +48,13 @@ export default function SongHistory({ historyVersion, visible, onPlayFromHistory
                 title: e.title,
                 videoTitle: e.videoTitle || e.title || '',
                 duration: e.duration || 0,
-                fileSizeMB: e.fileSizeMB || 0,
               }));
               const clickedPlayableIndex = history
                 .filter(e => e.isPlayable)
                 .findIndex(e => e === entry);
               onPlayFromHistory?.(playable, Math.max(0, clickedPlayableIndex));
             }}
-            title={entry.isPlayable ? 'Play saved video' : 'Not saved yet'}
+            title={entry.isPlayable ? 'Play on YouTube' : 'No video found'}
           >
             <span className="history-time">
               {new Date(entry.timestamp).toLocaleTimeString()}

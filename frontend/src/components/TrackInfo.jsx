@@ -43,7 +43,6 @@ export default function TrackInfo({ media, hasVideo }) {
   if (!media || (!media.artist && !media.title)) return null;
 
   const albumArt = media.albumArt;
-  const dl = media.videoDownloadStatus;
 
   const accentColor = media.dominantColors?.[0]
     ? `rgb(${media.dominantColors[0].join(',')})`
@@ -87,24 +86,6 @@ export default function TrackInfo({ media, hasVideo }) {
               {media.detectionSource === 'fingerprint' ? 'Identified' : 'Now Playing'}
             </span>
           )}
-          {dl && dl.state === 'downloading' && (
-            <div className="download-status">
-              <div className="download-bar">
-                <div
-                  className="download-fill"
-                  style={{ width: `${dl.progress}%` }}
-                />
-              </div>
-              <span className="download-text">Saving {dl.progress}%</span>
-            </div>
-          )}
-          {dl && dl.state === 'completed' ? (
-            <span className="download-complete">
-              {dl.fileSizeMB ? `Saved (${dl.fileSizeMB.toFixed(1)} MB)` : 'Saved'}
-            </span>
-          ) : media.youtubeVideoId && (!dl || dl.state !== 'downloading') ? (
-            <span className="download-not-saved">Not saved</span>
-          ) : null}
         </div>
       </div>
     </>

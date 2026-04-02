@@ -11,10 +11,6 @@ export function mediaUrl(path) {
   return `${API_BASE}/media/${path}`;
 }
 
-export function videoUrl(videoId) {
-  return `${API_BASE}/media/videos/${videoId}.mp4`;
-}
-
 export function thumbnailUrl(videoId) {
   return `${API_BASE}/media/thumbnails/${videoId}.jpg`;
 }

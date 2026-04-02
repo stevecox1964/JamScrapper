@@ -24,7 +24,6 @@ from fingerprinter import AudioFingerprinter, load_acoustid_key
 from artist_store import ArtistStore, enrich_artist_profile, fetch_album_from_musicbrainz
 from history_store import HistoryStore
 from media_cache import MediaCache
-from video_downloader import VideoDownloader
 from playlist_store import PlaylistStore
 from choreography_store import ChoreographyStore
 from player_state_store import PlayerStateStore
@@ -97,7 +96,6 @@ media_info = {
     "youtubeUrl": "",
     "youtubeThumbnailUrl": "",
     "youtubeDuration": 0,
-    "videoDownloadStatus": None,
 }
 _last_track_key = ""
 _last_track_seen_at = 0.0
@@ -114,7 +112,6 @@ artist_store = ArtistStore(_db_conn)
 fingerprinter = AudioFingerprinter(api_key=load_acoustid_key())
 history_store = HistoryStore(_db_conn)
 media_cache = MediaCache(_db_conn)
-video_downloader = VideoDownloader(_db_conn)
 playlist_store = PlaylistStore(_db_conn)
 choreography_store = ChoreographyStore(_db_conn)
 player_state_store = PlayerStateStore(_db_conn)
@@ -393,15 +390,9 @@ async def _handle_track_detected(artist, title, album, thumb_b64, source):
     # Reset fingerprinter on track change
     fingerprinter.reset()
 
-    # Check for existing download status (cross-checks file existence)
+    # Check for cached YouTube data
     cached_yt = media_cache.get_cached(artist, title)
     cached_vid = cached_yt.get("videoId", "") if cached_yt else ""
-    dl_status = video_downloader.get_status(cached_vid) if cached_vid else None
-    # If file is actually on disk, trust that over DB
-    if cached_vid and not dl_status and video_downloader.is_downloaded(cached_vid):
-        vid_path = video_downloader.video_dir / f"{cached_vid}.mp4"
-        size_mb = round(vid_path.stat().st_size / (1024 * 1024), 1)
-        dl_status = {"videoId": cached_vid, "state": "completed", "progress": 100, "fileSizeMB": size_mb}
 
     # IMMEDIATE broadcast — no blocking, user sees track info instantly
     media_info = {
@@ -422,7 +413,6 @@ async def _handle_track_detected(artist, title, album, thumb_b64, source):
         "youtubeUrl": cached_yt.get("videoUrl", "") if cached_yt else "",
         "youtubeThumbnailUrl": f"/media/thumbnails/{cached_vid}.jpg" if cached_vid else "",
         "youtubeDuration": cached_yt.get("duration", 0) if cached_yt else 0,
-        "videoDownloadStatus": dl_status,
     }
 
     # Fire off all enrichment as non-blocking background tasks
@@ -508,37 +498,11 @@ async def _fetch_youtube_data(artist, title):
                 "youtubeUrl": result.get("videoUrl", ""),
                 "youtubeThumbnailUrl": f"/media/thumbnails/{result['videoId']}.jpg",
                 "youtubeDuration": result.get("duration", 0),
-                "videoDownloadStatus": video_downloader.get_status(video_id),
                 "_profileVersion": _profile_version,
             }
             print(f"  YouTube: {result.get('videoTitle', '')} ({video_id})")
-
-            # Auto-download video (fire-and-forget)
-            if video_id and not video_downloader.is_downloaded(video_id):
-                asyncio.create_task(_download_video(
-                    video_id, artist, title, result.get("videoTitle", "")
-                ))
     except Exception as e:
         print(f"  YouTube fetch error: {e}")
-
-
-async def _download_video(video_id, artist, title, video_title):
-    """Download a YouTube video as MP4. Async wrapper around blocking download."""
-    global media_info, _profile_version
-    try:
-        result = await asyncio.to_thread(
-            video_downloader.download_video, video_id, artist, title, video_title
-        )
-        _profile_version += 1
-        media_info = {
-            **media_info,
-            "videoDownloadStatus": result,
-            "_profileVersion": _profile_version,
-        }
-        state = result["state"] if result else "unknown"
-        print(f"  [DL] {state}: {video_title}")
-    except Exception as e:
-        print(f"  [DL] Download error: {e}")
 
 
 _poll_count = 0
@@ -750,45 +714,21 @@ class TrackHandler(BaseHTTPRequestHandler):
                 title = (entry.get("title") or "").strip()
                 cached = media_cache.get_cached(artist, title) if (artist or title) else None
                 video_id = cached.get("videoId", "") if cached else ""
-                status = video_downloader.get_status(video_id) if video_id else None
-                is_playable = bool(video_id and video_downloader.is_downloaded(video_id))
                 enriched.append({
                     **entry,
                     "videoId": video_id,
                     "videoTitle": cached.get("videoTitle", "") if cached else "",
                     "duration": cached.get("duration", 0) if cached else 0,
-                    "fileSizeMB": (status or {}).get("fileSizeMB", 0),
-                    "isPlayable": is_playable,
+                    "isPlayable": bool(video_id),
                 })
             self._json_response(enriched)
 
         elif self.path == "/now-playing":
             self._json_response({"media": media_info})
 
-        elif self.path == "/downloads":
-            self._json_response({
-                "downloads": video_downloader.get_all_status(),
-                "storage": video_downloader.get_storage_info(),
-            })
-
         elif self.path == "/library":
-            completed = []
-            for item in video_downloader.get_all_status():
-                vid = item.get("videoId", "")
-                # Cross-check: only include if file actually exists
-                if item.get("state") != "completed" or not video_downloader.is_downloaded(vid):
-                    continue
-                completed.append({
-                    "videoId": vid,
-                    "artist": item.get("artist", ""),
-                    "title": item.get("title", ""),
-                    "videoTitle": item.get("videoTitle", ""),
-                    "duration": item.get("duration", 0),
-                    "fileSizeMB": item.get("fileSizeMB", 0),
-                    "filePath": item.get("filePath", ""),
-                    "completedAt": item.get("completedAt", ""),
-                })
-            self._json_response({"tracks": completed})
+            tracks = media_cache.get_all_cached()
+            self._json_response({"tracks": tracks})
 
         elif self.path == "/playlists":
             self._json_response(playlist_store.list_playlists())
@@ -817,46 +757,6 @@ class TrackHandler(BaseHTTPRequestHandler):
         elif self.path == "/player-state":
             state = player_state_store.load()
             self._json_response(state or {})
-
-        elif self.path.startswith("/media/videos/"):
-            # Serve MP4 with Range support for seeking
-            relative = self.path[len("/media/"):]
-            file_path = Path(__file__).parent / "data" / "media_cache" / relative
-            if file_path.exists() and file_path.is_file():
-                file_size = file_path.stat().st_size
-                range_header = self.headers.get("Range")
-                if range_header:
-                    # Parse byte range
-                    m = __import__("re").match(r"bytes=(\d+)-(\d*)", range_header)
-                    if m:
-                        start = int(m.group(1))
-                        end = int(m.group(2)) if m.group(2) else file_size - 1
-                        end = min(end, file_size - 1)
-                        length = end - start + 1
-                        self.send_response(206)
-                        self.send_header("Content-Type", "video/mp4")
-                        self.send_header("Access-Control-Allow-Origin", "*")
-                        self.send_header("Accept-Ranges", "bytes")
-                        self.send_header("Content-Range", f"bytes {start}-{end}/{file_size}")
-                        self.send_header("Content-Length", str(length))
-                        self.end_headers()
-                        with open(file_path, "rb") as f:
-                            f.seek(start)
-                            self.wfile.write(f.read(length))
-                    else:
-                        self.send_response(416)
-                        self.end_headers()
-                else:
-                    self.send_response(200)
-                    self.send_header("Content-Type", "video/mp4")
-                    self.send_header("Access-Control-Allow-Origin", "*")
-                    self.send_header("Accept-Ranges", "bytes")
-                    self.send_header("Content-Length", str(file_size))
-                    self.end_headers()
-                    self.wfile.write(file_path.read_bytes())
-            else:
-                self.send_response(404)
-                self.end_headers()
 
         elif self.path.startswith("/media/"):
             relative = self.path[len("/media/"):]
@@ -921,24 +821,6 @@ class TrackHandler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
-
-        elif self.path == "/downloads":
-            body = self._read_body()
-            video_id = body.get("videoId", "")
-            if video_id and not video_downloader.is_downloaded(video_id):
-                # Queue download in the event loop (thread-safe)
-                import functools
-                loop = asyncio.get_event_loop()
-                loop.call_soon_threadsafe(
-                    lambda: asyncio.ensure_future(_download_video(
-                        video_id,
-                        body.get("artist", ""),
-                        body.get("title", ""),
-                        body.get("videoTitle", ""),
-                    ))
-                )
-            status = video_downloader.get_status(video_id)
-            self._json_response(status or {"state": "queued", "videoId": video_id})
 
         elif self.path == "/choreography":
             body = self._read_body()
@@ -1038,46 +920,6 @@ async def extension_poll_loop():
         await asyncio.sleep(EXTENSION_POLL_INTERVAL)
 
 
-async def download_progress_loop():
-    """Periodically update media_info with download progress during active downloads."""
-    global media_info, _profile_version
-    while True:
-        await asyncio.sleep(2)
-        current_vid = media_info.get("youtubeVideoId")
-        if not current_vid:
-            continue
-        status = video_downloader.get_status(current_vid)
-        if not status:
-            # File on disk but no DB record — show as completed
-            if video_downloader.is_downloaded(current_vid):
-                from pathlib import Path
-                size_mb = round((video_downloader.video_dir / f"{current_vid}.mp4").stat().st_size / (1024 * 1024), 1)
-                status = {"videoId": current_vid, "state": "completed", "progress": 100, "fileSizeMB": size_mb}
-            else:
-                continue
-        # If DB says downloading but file already exists on disk, correct to completed
-        if status.get("state") == "downloading" and video_downloader.is_downloaded(current_vid):
-            size_mb = round((video_downloader.video_dir / f"{current_vid}.mp4").stat().st_size / (1024 * 1024), 1)
-            status = {"videoId": current_vid, "state": "completed", "progress": 100, "fileSizeMB": size_mb}
-        old_status = media_info.get("videoDownloadStatus") or {}
-        if status.get("state") == "downloading":
-            old_progress = old_status.get("progress", -1)
-            if status.get("progress", 0) != old_progress:
-                _profile_version += 1
-                media_info = {
-                    **media_info,
-                    "videoDownloadStatus": status,
-                    "_profileVersion": _profile_version,
-                }
-        elif status.get("state") != old_status.get("state"):
-            _profile_version += 1
-            media_info = {
-                **media_info,
-                "videoDownloadStatus": status,
-                "_profileVersion": _profile_version,
-            }
-
-
 async def main():
     print("Starting VisualAudioScraper...")
     print(f"Frontend: http://localhost:8766  (serving from {FRONTEND_DIR})")
@@ -1101,7 +943,6 @@ async def main():
             media_poll_loop(),
             extension_poll_loop(),
             fingerprint_poll_loop(),
-            download_progress_loop(),
             asyncio.Future(),
         )
 

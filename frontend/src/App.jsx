@@ -120,7 +120,6 @@ export default function App() {
           title: e.title,
           videoTitle: e.videoTitle || e.title || '',
           duration: e.duration || 0,
-          fileSizeMB: e.fileSizeMB || 0,
         }));
         playFromHistory(playable, 0);
       })
@@ -161,7 +160,6 @@ export default function App() {
       dominantColors: [],
       genres: [],
       detectionSource: 'player',
-      videoDownloadStatus: { state: 'completed', fileSizeMB: currentPlayerTrack.fileSizeMB || 0 },
     }
     : media;
 
@@ -197,7 +195,6 @@ export default function App() {
       <YouTubeBackground
         appMode={appMode}
         videoId={media?.youtubeVideoId}
-        downloadStatus={media?.videoDownloadStatus}
         playerTrack={currentPlayerTrack}
         nextPlayerTrack={nextPlayerTrack}
         onTrackEnded={nextTrack}

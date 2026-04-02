@@ -5,7 +5,6 @@ export default function PlaylistPanel({ visible, currentMedia }) {
   const [playlists, setPlaylists] = useState([]);
   const [expanded, setExpanded] = useState(null); // playlist id
   const [expandedData, setExpandedData] = useState(null);
-  const [downloads, setDownloads] = useState({ downloads: [], storage: { count: 0, totalMB: 0 } });
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
 
@@ -13,15 +12,10 @@ export default function PlaylistPanel({ visible, currentMedia }) {
     fetch(`${API}/playlists`).then(r => r.json()).then(setPlaylists).catch(() => {});
   }, []);
 
-  const fetchDownloads = useCallback(() => {
-    fetch(`${API}/downloads`).then(r => r.json()).then(setDownloads).catch(() => {});
-  }, []);
-
   useEffect(() => {
     if (!visible) return;
     fetchPlaylists();
-    fetchDownloads();
-  }, [visible, fetchPlaylists, fetchDownloads]);
+  }, [visible, fetchPlaylists]);
 
   const expandPlaylist = (id) => {
     if (expanded === id) {
@@ -101,14 +95,14 @@ export default function PlaylistPanel({ visible, currentMedia }) {
       .catch(() => {});
   };
 
-  const canAdd = currentMedia?.videoDownloadStatus?.state === 'completed';
+  const canAdd = Boolean(currentMedia?.youtubeVideoId);
 
   if (!visible) return null;
 
   return (
     <div className="playlist-panel">
       <div className="playlist-header">
-        <div className="playlist-title">Offline Playlists</div>
+        <div className="playlist-title">Playlists</div>
         <button className="playlist-add-btn" onClick={() => setCreating(c => !c)}>+</button>
       </div>
 
@@ -179,9 +173,6 @@ export default function PlaylistPanel({ visible, currentMedia }) {
         )}
       </div>
 
-      <div className="playlist-storage">
-        Downloads: {downloads.storage.count} videos, {downloads.storage.totalMB} MB
-      </div>
     </div>
   );
 }

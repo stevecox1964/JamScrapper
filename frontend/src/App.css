@@ -402,46 +402,6 @@ body {
   padding: 8px 0;
 }
 
-/* Download / save status */
-.download-status {
-  margin-top: 4px;
-  font-size: 9px;
-}
-
-.download-bar {
-  height: 3px;
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 2px;
-  overflow: hidden;
-  margin-bottom: 2px;
-}
-
-.download-fill {
-  height: 100%;
-  background: var(--accent);
-  transition: width 0.3s ease;
-  border-radius: 2px;
-}
-
-.download-text { color: var(--accent); }
-.download-complete { color: #00ff88; font-size: 9px; margin-top: 4px; }
-.download-not-saved { color: #ff8800; font-size: 9px; margin-top: 4px; opacity: 0.7; }
-
-/* Local video playback — crossfades with YouTube IFrame */
-.youtube-bg .local-video {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  width: 100vw;
-  height: 56.25vw;
-  min-height: 100vh;
-  min-width: 177.78vh;
-  transition: opacity 0.3s ease;
-  object-fit: cover;
-  will-change: opacity;
-}
-
 /* Playlist panel */
 .playlist-panel {
   position: fixed;
@@ -630,13 +590,6 @@ body {
   font-size: 10px;
 }
 
-.playlist-storage {
-  color: #444;
-  font-size: 9px;
-  text-align: center;
-  padding-top: 6px;
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
-}
 
 /* Player controls */
 .player-controls {

@@ -13,43 +13,32 @@ The backend also identifies what's playing via three methods:
 
 When an artist is detected, the system fetches images, extracts dominant colors, pulls genre tags from MusicBrainz, looks up the album via MusicBrainz recording search, and builds a persistent artist profile stored in SQLite. Next time that artist plays, the profile loads instantly.
 
-Every visualizer is infused with media — artist images, album art, and YouTube thumbnails replace plain geometric shapes. A YouTube music video plays as a background layer behind all modes, starting instantly via YouTube's IFrame API. Videos are automatically saved locally in the background as they play. Once a video finishes downloading, playback seamlessly crossfades to the local copy — no buffering, no interruptions.
-
-## Video Pipeline
-
-When a track is detected, the backend searches YouTube in parallel with artist enrichment so the video starts as fast as possible:
-
-1. **Instant playback** — YouTube IFrame loads and plays the music video immediately (muted)
-2. **Background save** — `yt-dlp` downloads the MP4 in the background (up to 1080p)
-3. **Seamless switch** — Once the download completes, playback crossfades to the local file
-4. **Cached for next time** — If the same song plays again, the local video loads instantly
-
-Download progress is shown in the track info overlay. Videos are stored in `backend/data/media_cache/videos/`.
+Every visualizer is infused with media — artist images, album art, and YouTube thumbnails replace plain geometric shapes. A YouTube music video plays as a background layer behind all modes, starting instantly via YouTube's IFrame API.
 
 ## Playlist System
 
-Create offline playlists from downloaded videos:
-- Add currently playing tracks to any playlist
+Create playlists from any track that has a YouTube video:
+- Add the currently playing track to any playlist with one click
 - Create, delete, and manage multiple playlists
-- Track metadata (artist, title, duration) stored alongside video references
+- Track metadata (artist, title, duration) stored alongside video IDs
 - All playlist data persists in SQLite (`backend/data/visualaudio.db`)
 
 ## Player Mode
 
 JamScrapper supports two workflows:
-- **Live mode** — detect tracks from streaming apps, play muted video background, auto-save downloads
-- **Player mode** — play saved local videos with audio, queue playlists, and auto-advance tracks
+- **Live mode** — detect tracks from streaming apps, play muted YouTube video background
+- **Player mode** — stream YouTube videos with audio, queue playlists, and auto-advance tracks
 
-Player mode uses local files served from `backend/data/media_cache/videos/` and keeps the visualizer overlay on top so future FX can be layered over playback.
+Player mode streams directly via the YouTube IFrame API — no local files needed. The visualizer overlay stays on top so FX layer over the video.
 
 Player state (queue, position, volume) is persisted to SQLite — reloading the page or restarting the app picks up right where you left off.
 
 ## History Playback
 
 Song history is playable:
-- History entries are enriched with cached/downloaded video metadata
-- Click a playable history row to jump straight into Player mode
-- If a song is in history but not downloaded yet, the UI shows a clear message
+- History entries are enriched with cached YouTube video metadata
+- Click any history row with a known video to jump straight into Player mode
+- Tracks without a cached YouTube result are shown as non-playable
 
 ## Visualizer Modes
 
@@ -77,8 +66,7 @@ All modes render with transparent backgrounds so the YouTube music video bleeds 
 | Audio Fingerprinting | `pyacoustid` / Chromaprint (optional) |
 | Artist Profiles | MusicBrainz genres + album lookup, TheAudioDB/Wikipedia images, Pillow color extraction |
 | YouTube Search | `yt-dlp` (search + thumbnail caching) |
-| Video Download | `yt-dlp` (MP4 up to 1080p, progress tracking) |
-| Video Background | YouTube IFrame API (instant playback) -> local MP4 (crossfade on download complete) |
+| Video Background | YouTube IFrame API (live: muted loop, player: unmuted with track-end detection) |
 | Media Textures | Three.js textures + Canvas image rendering from artist/album/YouTube media |
 | Data Layer | SQLite (WAL mode, single file) |
 | Frontend | React 19, Vite |
@@ -92,7 +80,7 @@ All modes render with transparent backgrounds so the YouTube music video bleeds 
 - Python 3.11+
 - Node.js 18+
 - Google Chrome (for the track detection extension)
-- `yt-dlp` installed and on PATH (for YouTube search, thumbnails, and saving)
+- `yt-dlp` installed and on PATH (for YouTube search and thumbnails)
 
 ### Quick Start
 
@@ -148,12 +136,11 @@ Opens at `http://localhost:5173`. Connects to backend at `localhost:8765`/`8766`
 1. Run `start.bat` (or start backend + frontend manually)
 2. Play audio on any supported streaming site (Pandora, Spotify, YouTube Music, etc.)
 3. Track info appears in the bottom-left overlay
-4. The music video plays instantly as a background layer
-5. Videos are saved automatically — download progress shows in the track overlay
-6. Pick a visualizer mode from the header selector
-7. Toggle song history or playlist panels from the header
-8. Switch to **Player** mode to play your saved library and playlists with audio
-9. Click playable rows in **History** to launch old songs instantly
+4. The music video streams instantly as a background layer (YouTube IFrame)
+5. Pick a visualizer mode from the header selector
+6. Toggle song history or playlist panels from the header
+7. Switch to **Player** mode to stream playlists and history tracks with audio
+8. Click any row in **History** with a known video to launch it instantly
 
 ### Optional: Audio Fingerprinting
 
@@ -171,7 +158,6 @@ Without this, the app still works — it just relies on the Windows media sessio
 backend/
   server.py            - Audio capture, FFT, WebSocket, media polling, HTTP/static server
   db.py                - SQLite database layer (WAL mode, auto-init)
-  video_downloader.py  - YouTube video download with progress tracking (yt-dlp)
   playlist_store.py    - Playlist CRUD (SQLite)
   artist_store.py      - Artist profile persistence, color extraction, genre mapping (SQLite)
   fingerprinter.py     - Audio fingerprinting via AcoustID (optional)
@@ -182,7 +168,7 @@ backend/
   migrate_json_to_sqlite.py - One-time migration from legacy JSON files
   data/
     visualaudio.db     - All app data (auto-created)
-    media_cache/       - Cached thumbnails + downloaded videos (auto-generated)
+    media_cache/       - Cached thumbnails (auto-generated)
 extension/
   manifest.json        - Chrome extension manifest (Manifest V3)
   content.js           - DOM scraper + MediaSession interceptor for streaming sites
@@ -193,11 +179,11 @@ frontend/
     components/
       Visualizer.jsx        - 2D canvas visualizers (passes media assets)
       ThreeVisualizer.jsx   - 3D Three.js visualizers (passes texture manager)
-      TrackInfo.jsx         - Track info overlay with genres, colors, save progress
+      TrackInfo.jsx         - Track info overlay with genres and colors
       ModeSelector.jsx      - Mode picker UI
-      YouTubeBackground.jsx - Video background (YouTube IFrame -> local MP4 crossfade)
+      YouTubeBackground.jsx - Video background (YouTube IFrame, live + player modes)
       SongHistory.jsx       - Collapsible play history panel with playable rows
-      PlaylistPanel.jsx     - Offline playlist management panel
+      PlaylistPanel.jsx     - Playlist management panel
       LibraryPanel.jsx      - Saved library + playlist playback panel (Player mode)
       PlayerControls.jsx    - Transport controls (play/pause, seek, volume, next/prev)
     hooks/
@@ -207,16 +193,6 @@ frontend/
     visualizers/             - Individual visualizer implementations
 start.bat                - One-click launcher for backend + frontend (dev mode)
 ```
-
-## Video Sync & Integrity
-
-The video pipeline includes multiple integrity checks to keep everything in sync:
-
-- **File cross-check** — If the database says a video is downloaded but the file is missing, the status auto-corrects (no phantom "Downloaded" badges)
-- **Cache dedup** — Each `(artist, title)` maps to exactly one video ID. Stale duplicate cache entries are cleaned up automatically
-- **Library filtering** — The library and playlist endpoints only return tracks whose files actually exist on disk
-- **Player error recovery** — If a local MP4 fails to load in Player mode, it skips to the next track instead of showing a black screen
-- **Track fade-out** — Videos fade out (both audio and video) in the last 3 seconds before the next track starts, in both Player and Live modes
 
 ## Roadmap
 
@@ -246,4 +222,4 @@ The Windows media session fallback works with any app that exposes "Now Playing"
 - Windows only (WASAPI loopback + WinRT media session)
 - Audio must be playing through the default output device
 - Google Chrome with the extension installed (for web player track detection)
-- `yt-dlp` on PATH (for YouTube search and video saving)
+- `yt-dlp` on PATH (for YouTube search and thumbnails)

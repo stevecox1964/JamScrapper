@@ -122,6 +122,22 @@ class MediaCache:
         except Exception as e:
             print(f"  [YT] Thumbnail download error: {e}")
 
+    def get_all_cached(self):
+        """Return all cached tracks for the library endpoint."""
+        rows = self._conn.execute(
+            "SELECT video_id, artist, title, video_title, channel, duration FROM tracks ORDER BY created_at DESC"
+        ).fetchall()
+        return [
+            {
+                "videoId": row["video_id"],
+                "artist": row["artist"],
+                "title": row["title"],
+                "videoTitle": row["video_title"],
+                "duration": row["duration"],
+            }
+            for row in rows
+        ]
+
     def get_thumbnail_path(self, video_id):
         path = self.thumb_dir / f"{video_id}.jpg"
         return path if path.exists() else None
