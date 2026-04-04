@@ -102,6 +102,13 @@ _last_track_seen_at = 0.0
 _profile_version = 0
 _detection_source = ""
 _image_cache = {}  # artist -> image list
+_extension_seen_at = 0.0  # timestamp of last extension detection (for priority)
+_enrichment_track_key = ""  # track key that current enrichment is for
+
+# Source priority: higher = more trusted.  Extension reads DOM directly; WinRT
+# may pick up the wrong Chrome session or a stale media session from another app.
+SOURCE_PRIORITY = {"extension": 3, "chrome_tab": 2, "media_session": 1, "fingerprint": 0}
+EXTENSION_PRIORITY_WINDOW = 5.0  # seconds to trust extension over lower sources
 
 # Initialize SQLite database
 _db_conn = get_db()
@@ -365,23 +372,48 @@ def fetch_artist_images(artist_name):
     return images
 
 
+def _normalize_key(artist, title):
+    """Normalize artist+title for dedup: lowercase, collapse whitespace."""
+    a = " ".join((artist or "").lower().split())
+    t = " ".join((title or "").lower().split())
+    return f"{a}|||{t}"
+
+
 async def _handle_track_detected(artist, title, album, thumb_b64, source):
     """Common handler for when a track is detected (from any source)."""
     global _last_track_key, _last_track_seen_at, media_info, _profile_version, _detection_source
+    global _extension_seen_at, _enrichment_track_key
 
-    track_key = f"{artist}|||{title}"
+    track_key = _normalize_key(artist, title)
+    now = asyncio.get_running_loop().time()
+
     if track_key == _last_track_key:
-        _last_track_seen_at = asyncio.get_running_loop().time()
+        _last_track_seen_at = now
+        if source == "extension":
+            _extension_seen_at = now
         # Same track — but update album if it just became available
         if album and not media_info.get("album"):
             media_info = {**media_info, "album": album}
             print(f"  >> Album updated: {album}")
         return  # Same track, skip
 
+    # --- Source priority gate ---
+    # If extension recently reported a track, don't let lower-priority sources override it.
+    src_prio = SOURCE_PRIORITY.get(source, 0)
+    cur_prio = SOURCE_PRIORITY.get(_detection_source, 0)
+    if _last_track_key and src_prio < cur_prio:
+        time_since_ext = now - _extension_seen_at
+        if _detection_source == "extension" and time_since_ext < EXTENSION_PRIORITY_WINDOW:
+            print(f"  [SKIP] {source} tried to override extension (last seen {time_since_ext:.1f}s ago): {artist} - {title}")
+            return
+
     _last_track_key = track_key
-    _last_track_seen_at = asyncio.get_running_loop().time()
+    _last_track_seen_at = now
     _detection_source = source
+    if source == "extension":
+        _extension_seen_at = now
     _profile_version += 1
+    _enrichment_track_key = track_key
     print(f"  >> Now playing: {artist} - {title} ({album}) [via {source}]")
 
     # Log to play history
@@ -421,8 +453,15 @@ async def _handle_track_detected(artist, title, album, thumb_b64, source):
 
 async def _enrich_track(artist, title, album, thumb_b64):
     """Background enrichment: images, genres, colors, YouTube. Non-blocking.
-    YouTube search runs in parallel with artist enrichment for instant video playback."""
+    YouTube search runs in parallel with artist enrichment for instant video playback.
+    Guards every update: if the user skipped to a new track, stop writing to media_info."""
     global media_info, _profile_version
+
+    my_key = _normalize_key(artist, title)
+
+    def _stale():
+        """Return True if a newer track has been detected — stop enriching."""
+        return _enrichment_track_key != my_key
 
     # Kick off YouTube search immediately (don't wait for images/profile)
     yt_task = None
@@ -433,21 +472,24 @@ async def _enrich_track(artist, title, album, thumb_b64):
     artist_imgs = []
     try:
         artist_imgs = await asyncio.to_thread(fetch_artist_images, artist)
-        _profile_version += 1
-        media_info = {
-            **media_info,
-            "artistImages": artist_imgs,
-            "albumArt": thumb_b64 or media_info.get("albumArt"),
-            "_profileVersion": _profile_version,
-        }
+        if _stale():
+            print(f"  [STALE] Dropping image results for {artist} - {title}")
+        else:
+            _profile_version += 1
+            media_info = {
+                **media_info,
+                "artistImages": artist_imgs,
+                "albumArt": thumb_b64 or media_info.get("albumArt"),
+                "_profileVersion": _profile_version,
+            }
     except Exception as e:
         print(f"  Image fetch error: {e}")
 
     # Album lookup via MusicBrainz if not already known
-    if not album and artist and title:
+    if not album and artist and title and not _stale():
         try:
             mb_album = await asyncio.to_thread(fetch_album_from_musicbrainz, artist, title)
-            if mb_album:
+            if mb_album and not _stale():
                 album = mb_album
                 _profile_version += 1
                 media_info = {**media_info, "album": album, "_profileVersion": _profile_version}
@@ -456,28 +498,32 @@ async def _enrich_track(artist, title, album, thumb_b64):
             print(f"  Album lookup error: {e}")
 
     # Profile enrichment (genres, colors, moods)
-    try:
-        profile = await enrich_artist_profile(
-            artist_store, artist, artist_imgs
-        )
-        if title:
-            await asyncio.to_thread(
-                artist_store.update_song, artist, title, album
+    if not _stale():
+        try:
+            profile = await enrich_artist_profile(
+                artist_store, artist, artist_imgs
             )
-        _profile_version += 1
-        media_info = {
-            **media_info,
-            "dominantColors": profile.get("dominantColors", []),
-            "genres": profile.get("genres", []),
-            "moodTags": profile.get("moodTags", []),
-            "preferredVisualizer": profile.get("preferredVisualizer", ""),
-            "_profileVersion": _profile_version,
-        }
-        print(f"  Genres: {profile.get('genres', [])}")
-        print(f"  Colors: {len(profile.get('dominantColors', []))} extracted")
-        print(f"  Images: {len(artist_imgs)} found")
-    except Exception as e:
-        print(f"  Profile enrichment error: {e}")
+            if title:
+                await asyncio.to_thread(
+                    artist_store.update_song, artist, title, album
+                )
+            if not _stale():
+                _profile_version += 1
+                media_info = {
+                    **media_info,
+                    "dominantColors": profile.get("dominantColors", []),
+                    "genres": profile.get("genres", []),
+                    "moodTags": profile.get("moodTags", []),
+                    "preferredVisualizer": profile.get("preferredVisualizer", ""),
+                    "_profileVersion": _profile_version,
+                }
+                print(f"  Genres: {profile.get('genres', [])}")
+                print(f"  Colors: {len(profile.get('dominantColors', []))} extracted")
+                print(f"  Images: {len(artist_imgs)} found")
+            else:
+                print(f"  [STALE] Dropping profile results for {artist} - {title}")
+        except Exception as e:
+            print(f"  Profile enrichment error: {e}")
 
     if yt_task:
         await yt_task
@@ -486,9 +532,10 @@ async def _enrich_track(artist, title, album, thumb_b64):
 async def _fetch_youtube_data(artist, title):
     """Search YouTube and update media_info with video metadata."""
     global media_info, _profile_version
+    my_key = _normalize_key(artist, title)
     try:
         result = await asyncio.to_thread(media_cache.search_youtube, artist, title)
-        if result:
+        if result and _enrichment_track_key == my_key:
             video_id = result.get("videoId", "")
             _profile_version += 1
             media_info = {
@@ -501,6 +548,8 @@ async def _fetch_youtube_data(artist, title):
                 "_profileVersion": _profile_version,
             }
             print(f"  YouTube: {result.get('videoTitle', '')} ({video_id})")
+        elif result:
+            print(f"  [STALE] Dropping YouTube results for {artist} - {title}")
     except Exception as e:
         print(f"  YouTube fetch error: {e}")
 

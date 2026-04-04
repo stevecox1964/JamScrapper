@@ -7,9 +7,11 @@ A real-time music visualizer that captures system audio on Windows and renders i
 A Python backend captures system audio via WASAPI loopback (anything playing through your speakers), runs FFT analysis, and streams frequency + waveform data over WebSocket at ~30fps. A React frontend renders it across 7 visualizer modes.
 
 The backend also identifies what's playing via three methods:
-- **Chrome extension** — reads track info directly from the player DOM on Pandora, Spotify, YouTube Music, SoundCloud, and others
+- **Chrome extension** — reads track info directly from the player DOM on Pandora, Spotify, YouTube Music, SoundCloud, and others (highest priority source)
 - **Windows media session** — reads "Now Playing" metadata from apps that expose it (Spotify desktop, YouTube Music, etc.)
 - **Audio fingerprinting** (optional) — identifies songs from the audio signal via AcoustID/Chromaprint
+
+Source priority is enforced: the extension is trusted over WinRT for 5 seconds after it last reported, preventing stale or mismatched Windows media sessions from overriding accurate DOM data.
 
 When an artist is detected, the system fetches images, extracts dominant colors, pulls genre tags from MusicBrainz, looks up the album via MusicBrainz recording search, and builds a persistent artist profile stored in SQLite. Next time that artist plays, the profile loads instantly.
 
@@ -93,7 +95,7 @@ cd ../frontend && npm install
 start.bat
 ```
 
-`start.bat` cleans up any stale processes on the required ports, then launches the backend, frontend dev server, and opens the browser automatically.
+`start.bat` kills any stale processes on the required ports, waits for them to fully release, verifies the ports are free, then launches the backend, frontend dev server, and opens the browser automatically. If a port is still in use after cleanup, it exits with an error rather than launching a second instance.
 
 ### Production Build
 

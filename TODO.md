@@ -23,6 +23,10 @@
 - Backend `/history/playable` endpoint for history-to-player flow
 - Faster live detection/transition cadence (WinRT + extension polling tuned)
 - Player state persistence (queue, position, volume restored on reload)
+- Extension source priority over WinRT (prevents wrong artist from stale Windows media session)
+- Normalized dedup keys (case-insensitive track matching stops artist/title flipping)
+- Stale enrichment guard (skipping tracks no longer overwrites current track's data)
+- Single-instance enforcement in start.bat (port-free check before launch)
 
 ## Known Limitations
 - Chrome extension must be installed manually (Developer mode, Load unpacked)
