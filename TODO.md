@@ -27,6 +27,8 @@
 - Normalized dedup keys (case-insensitive track matching stops artist/title flipping)
 - Stale enrichment guard (skipping tracks no longer overwrites current track's data)
 - Single-instance enforcement in start.bat (port-free check before launch)
+- Aggressive YouTube search with fallback queries (official video → music video → bare → artist-only)
+- YouTube search retry (2 attempts with 5s delay between) + stale-track abort
 
 ## Known Limitations
 - Chrome extension must be installed manually (Developer mode, Load unpacked)

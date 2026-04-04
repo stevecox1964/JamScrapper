@@ -43,7 +43,8 @@ class MediaCache:
         }
 
     def search_youtube(self, artist, title):
-        """Search YouTube via yt-dlp. BLOCKING -- call via asyncio.to_thread().
+        """Search YouTube via yt-dlp with aggressive fallback queries.
+        BLOCKING -- call via asyncio.to_thread().
         Returns dict with video metadata or None."""
         # Check SQLite cache first
         cached = self.get_cached(artist, title)
@@ -53,13 +54,36 @@ class MediaCache:
         if not self._yt_dlp_available:
             return None
 
-        query = f"ytsearch1:{artist} {title} official music video"
+        # Build a list of increasingly broad queries so we find SOMETHING
+        queries = []
+        if artist and title:
+            queries.append(f"{artist} {title} official music video")
+            queries.append(f"{artist} {title} music video")
+            queries.append(f"{artist} {title}")
+        if artist:
+            queries.append(f"{artist} official music video")
+        if title and not artist:
+            queries.append(f"{title} official music video")
+            queries.append(f"{title}")
+
+        for i, q in enumerate(queries):
+            entry = self._yt_dlp_search(q, artist, title, attempt=i + 1, total=len(queries))
+            if entry:
+                return entry
+
+        print(f"  [YT] All {len(queries)} queries failed for: {artist} - {title}")
+        return None
+
+    def _yt_dlp_search(self, query, artist, title, attempt=1, total=1):
+        """Run a single yt-dlp search. Returns entry dict or None."""
+        full_query = f"ytsearch1:{query}"
         try:
+            print(f"  [YT] Search ({attempt}/{total}): {query}")
             result = subprocess.run(
-                ["yt-dlp", "--dump-json", "--no-download", query],
+                ["yt-dlp", "--dump-json", "--no-download", full_query],
                 capture_output=True,
                 text=True,
-                timeout=15,
+                timeout=20,
             )
             if result.returncode != 0:
                 return None
@@ -105,10 +129,10 @@ class MediaCache:
             return entry
 
         except subprocess.TimeoutExpired:
-            print(f"  [YT] Timeout for: {artist} - {title}")
+            print(f"  [YT] Timeout ({attempt}/{total}): {query}")
             return None
         except Exception as e:
-            print(f"  [YT] Search error: {e}")
+            print(f"  [YT] Error ({attempt}/{total}): {e}")
             return None
 
     def _download_thumbnail(self, video_id, url):

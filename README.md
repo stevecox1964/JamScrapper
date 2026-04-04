@@ -67,7 +67,7 @@ All modes render with transparent backgrounds so the YouTube music video bleeds 
 | Media Detection | Chrome extension (DOM scraping + MediaSession), `winrt` (Windows "Now Playing") |
 | Audio Fingerprinting | `pyacoustid` / Chromaprint (optional) |
 | Artist Profiles | MusicBrainz genres + album lookup, TheAudioDB/Wikipedia images, Pillow color extraction |
-| YouTube Search | `yt-dlp` (search + thumbnail caching) |
+| YouTube Search | `yt-dlp` (aggressive fallback queries + retry + thumbnail caching) |
 | Video Background | YouTube IFrame API (live: muted loop, player: unmuted with track-end detection) |
 | Media Textures | Three.js textures + Canvas image rendering from artist/album/YouTube media |
 | Data Layer | SQLite (WAL mode, single file) |

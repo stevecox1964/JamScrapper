@@ -529,29 +529,45 @@ async def _enrich_track(artist, title, album, thumb_b64):
         await yt_task
 
 
-async def _fetch_youtube_data(artist, title):
-    """Search YouTube and update media_info with video metadata."""
+async def _fetch_youtube_data(artist, title, max_retries=2):
+    """Search YouTube and update media_info with video metadata.
+    Retries on failure with a delay — aggressively tries to find a video."""
     global media_info, _profile_version
     my_key = _normalize_key(artist, title)
-    try:
-        result = await asyncio.to_thread(media_cache.search_youtube, artist, title)
-        if result and _enrichment_track_key == my_key:
-            video_id = result.get("videoId", "")
-            _profile_version += 1
-            media_info = {
-                **media_info,
-                "youtubeVideoId": video_id,
-                "youtubeTitle": result.get("videoTitle", ""),
-                "youtubeUrl": result.get("videoUrl", ""),
-                "youtubeThumbnailUrl": f"/media/thumbnails/{result['videoId']}.jpg",
-                "youtubeDuration": result.get("duration", 0),
-                "_profileVersion": _profile_version,
-            }
-            print(f"  YouTube: {result.get('videoTitle', '')} ({video_id})")
-        elif result:
-            print(f"  [STALE] Dropping YouTube results for {artist} - {title}")
-    except Exception as e:
-        print(f"  YouTube fetch error: {e}")
+
+    for attempt in range(1, max_retries + 1):
+        if _enrichment_track_key != my_key:
+            print(f"  [STALE] Aborting YouTube search for {artist} - {title}")
+            return
+        try:
+            result = await asyncio.to_thread(media_cache.search_youtube, artist, title)
+            if result and _enrichment_track_key == my_key:
+                video_id = result.get("videoId", "")
+                _profile_version += 1
+                media_info = {
+                    **media_info,
+                    "youtubeVideoId": video_id,
+                    "youtubeTitle": result.get("videoTitle", ""),
+                    "youtubeUrl": result.get("videoUrl", ""),
+                    "youtubeThumbnailUrl": f"/media/thumbnails/{result['videoId']}.jpg",
+                    "youtubeDuration": result.get("duration", 0),
+                    "_profileVersion": _profile_version,
+                }
+                print(f"  YouTube: {result.get('videoTitle', '')} ({video_id})")
+                return  # Success
+            elif result:
+                print(f"  [STALE] Dropping YouTube results for {artist} - {title}")
+                return
+            # result is None — search failed, retry after delay
+            if attempt < max_retries:
+                print(f"  [YT] No result for {artist} - {title}, retrying in 5s (attempt {attempt}/{max_retries})")
+                await asyncio.sleep(5)
+        except Exception as e:
+            print(f"  YouTube fetch error (attempt {attempt}): {e}")
+            if attempt < max_retries:
+                await asyncio.sleep(5)
+
+    print(f"  [YT] Exhausted all {max_retries} attempts for: {artist} - {title}")
 
 
 _poll_count = 0
