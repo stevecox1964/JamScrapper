@@ -86,6 +86,30 @@ export default function TrackInfo({ media, hasVideo }) {
               {media.detectionSource === 'fingerprint' ? 'Identified' : 'Now Playing'}
             </span>
           )}
+          {media.youtubeVideoId && (
+            <div className="track-share">
+              <a
+                href={`https://www.youtube.com/watch?v=${media.youtubeVideoId}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="share-link"
+                title="Open on YouTube"
+              >
+                youtube.com/watch?v={media.youtubeVideoId}
+              </a>
+              <button
+                type="button"
+                className="share-copy"
+                onClick={() => {
+                  const url = `https://www.youtube.com/watch?v=${media.youtubeVideoId}`;
+                  navigator.clipboard?.writeText(url);
+                }}
+                title="Copy link"
+              >
+                Copy
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </>

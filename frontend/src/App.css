@@ -278,6 +278,43 @@ body {
   margin-top: 2px;
 }
 
+.track-share {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  font-size: 12px;
+}
+
+.share-link {
+  color: var(--text-dim);
+  text-decoration: none;
+  opacity: 0.85;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 280px;
+}
+
+.share-link:hover {
+  color: #fff;
+  text-decoration: underline;
+}
+
+.share-copy {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.share-copy:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+
 /* Header toggle buttons */
 .debug-toggle {
   background: transparent;
