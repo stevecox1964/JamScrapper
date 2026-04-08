@@ -987,7 +987,7 @@ async def extension_poll_loop():
 
 async def main():
     print("Starting VisualAudioScraper...")
-    print(f"Frontend: http://localhost:8766  (serving from {FRONTEND_DIR})")
+    print("Frontend: http://localhost:5173  (Vite)")
     print("WebSocket: ws://localhost:8765")
     if fingerprinter.enabled:
         print("Audio fingerprinting: enabled")
@@ -998,9 +998,17 @@ async def main():
     threading.Thread(target=start_http_server, daemon=True).start()
 
     async with serve(handler, "localhost", 8765):
-        print("WebSocket ready — opening browser...")
-        import webbrowser
-        webbrowser.open("http://localhost:8766")
+        print("WebSocket ready — waiting for Vite...")
+        import webbrowser, socket
+        # Wait for Vite dev server to be listening before opening browser
+        for _ in range(60):
+            try:
+                with socket.create_connection(("localhost", 5173), timeout=0.5):
+                    break
+            except OSError:
+                await asyncio.sleep(0.5)
+        print("Opening browser at http://localhost:5173")
+        webbrowser.open("http://localhost:5173")
 
         await asyncio.gather(
             audio_capture_loop(),
