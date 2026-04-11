@@ -70,7 +70,7 @@ export default function TrackInfo({ media, hasVideo }) {
           >
             {media.artist}
           </div>
-          <div className="track-title">Now Playing — {media.title}</div>
+          <div className="track-title">{media.title}</div>
           {media.album && (
             <div className="track-album">{media.album}</div>
           )}
