@@ -416,8 +416,8 @@ async def _handle_track_detected(artist, title, album, thumb_b64, source):
     _enrichment_track_key = track_key
     print(f"  >> Now playing: {artist} - {title} ({album}) [via {source}]")
 
-    # Log to play history
-    history_store.add(artist, title, album, source)
+    # Log to play history (returns row ID for enrichment backfill)
+    _current_history_id = history_store.add(artist, title, album, source)
 
     # Reset fingerprinter on track change
     fingerprinter.reset()
@@ -448,13 +448,14 @@ async def _handle_track_detected(artist, title, album, thumb_b64, source):
     }
 
     # Fire off all enrichment as non-blocking background tasks
-    asyncio.create_task(_enrich_track(artist, title, album, thumb_b64))
+    asyncio.create_task(_enrich_track(artist, title, album, thumb_b64, _current_history_id))
 
 
-async def _enrich_track(artist, title, album, thumb_b64):
+async def _enrich_track(artist, title, album, thumb_b64, history_id=None):
     """Background enrichment: images, genres, colors, YouTube. Non-blocking.
     YouTube search runs in parallel with artist enrichment for instant video playback.
-    Guards every update: if the user skipped to a new track, stop writing to media_info."""
+    Guards every update: if the user skipped to a new track, stop writing to media_info.
+    Backfills enrichment data to play_history row via history_id."""
     global media_info, _profile_version
 
     my_key = _normalize_key(artist, title)
@@ -466,7 +467,7 @@ async def _enrich_track(artist, title, album, thumb_b64):
     # Kick off YouTube search immediately (don't wait for images/profile)
     yt_task = None
     if artist and title:
-        yt_task = asyncio.create_task(_fetch_youtube_data(artist, title))
+        yt_task = asyncio.create_task(_fetch_youtube_data(artist, title, history_id))
 
     # Artist images (runs in parallel with YouTube search)
     artist_imgs = []
@@ -528,8 +529,26 @@ async def _enrich_track(artist, title, album, thumb_b64):
     if yt_task:
         await yt_task
 
+    # Backfill all enrichment data to play_history
+    if history_id and not _stale():
+        try:
+            yt_vid = media_info.get("youtubeVideoId", "")
+            history_store.update(
+                history_id,
+                genres=media_info.get("genres", []),
+                dominant_colors=media_info.get("dominantColors", []),
+                artist_images=media_info.get("artistImages", []),
+                youtube_video_id=yt_vid,
+                youtube_title=media_info.get("youtubeTitle", ""),
+                youtube_url=media_info.get("youtubeUrl", ""),
+                thumbnail_url=media_info.get("youtubeThumbnailUrl", ""),
+                album=media_info.get("album", "") or album,
+            )
+        except Exception as e:
+            print(f"  History backfill error: {e}")
 
-async def _fetch_youtube_data(artist, title, max_retries=2):
+
+async def _fetch_youtube_data(artist, title, history_id=None, max_retries=2):
     """Search YouTube and update media_info with video metadata.
     Retries on failure with a delay — aggressively tries to find a video."""
     global media_info, _profile_version
@@ -553,6 +572,18 @@ async def _fetch_youtube_data(artist, title, max_retries=2):
                     "youtubeDuration": result.get("duration", 0),
                     "_profileVersion": _profile_version,
                 }
+                # Backfill YouTube data to history
+                if history_id:
+                    try:
+                        history_store.update(
+                            history_id,
+                            youtube_video_id=video_id,
+                            youtube_title=result.get("videoTitle", ""),
+                            youtube_url=result.get("videoUrl", ""),
+                            thumbnail_url=f"/media/thumbnails/{video_id}.jpg",
+                        )
+                    except Exception as e:
+                        print(f"  YT history backfill error: {e}")
                 print(f"  YouTube: {result.get('videoTitle', '')} ({video_id})")
                 return  # Success
             elif result:
@@ -714,7 +745,7 @@ async def fingerprint_poll_loop():
         _profile_version += 1
         print(f"Fingerprint identified: {fp_artist} - {fp_title}")
 
-        history_store.add(fp_artist, fp_title, fp_album, "fingerprint")
+        fp_history_id = history_store.add(fp_artist, fp_title, fp_album, "fingerprint")
 
         artist_imgs = await asyncio.to_thread(fetch_artist_images, fp_artist)
         profile = await enrich_artist_profile(artist_store, fp_artist, artist_imgs)
@@ -745,8 +776,19 @@ async def fingerprint_poll_loop():
             "youtubeDuration": 0,
         }
 
+        # Backfill enrichment to history
+        try:
+            history_store.update(
+                fp_history_id,
+                genres=profile.get("genres", []),
+                dominant_colors=profile.get("dominantColors", []),
+                artist_images=artist_imgs,
+            )
+        except Exception as e:
+            print(f"  Fingerprint history backfill error: {e}")
+
         if fp_artist and fp_title:
-            asyncio.create_task(_fetch_youtube_data(fp_artist, fp_title))
+            asyncio.create_task(_fetch_youtube_data(fp_artist, fp_title, fp_history_id))
 
 
 # ---------- HTTP server for Chrome extension ----------
@@ -778,12 +820,13 @@ class TrackHandler(BaseHTTPRequestHandler):
                 artist = (entry.get("artist") or "").strip()
                 title = (entry.get("title") or "").strip()
                 cached = media_cache.get_cached(artist, title) if (artist or title) else None
-                video_id = cached.get("videoId", "") if cached else ""
+                # Prefer cached YouTube data, fall back to stored history data
+                video_id = (cached.get("videoId", "") if cached else "") or entry.get("youtube_video_id", "")
                 enriched.append({
                     **entry,
                     "videoId": video_id,
-                    "videoTitle": cached.get("videoTitle", "") if cached else "",
-                    "duration": cached.get("duration", 0) if cached else 0,
+                    "videoTitle": (cached.get("videoTitle", "") if cached else "") or entry.get("youtube_title", ""),
+                    "duration": (cached.get("duration", 0) if cached else 0),
                     "isPlayable": bool(video_id),
                 })
             self._json_response(enriched)

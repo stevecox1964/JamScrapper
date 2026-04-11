@@ -61,7 +61,26 @@ export default function SongHistory({ historyVersion, visible, onPlayFromHistory
             </span>
             <span className="history-track">
               {entry.artist} &mdash; {entry.title}
+              {entry.album && <span className="history-album"> ({entry.album})</span>}
             </span>
+            {entry.genres && entry.genres.length > 0 && (
+              <span className="history-genres">
+                {entry.genres.slice(0, 3).map((g, j) => (
+                  <span key={j} className="history-genre-tag">{g}</span>
+                ))}
+              </span>
+            )}
+            {entry.dominant_colors && entry.dominant_colors.length > 0 && (
+              <span className="history-colors">
+                {entry.dominant_colors.slice(0, 4).map((c, j) => (
+                  <span
+                    key={j}
+                    className="history-color-dot"
+                    style={{ backgroundColor: `rgb(${c[0]},${c[1]},${c[2]})` }}
+                  />
+                ))}
+              </span>
+            )}
             <span className="history-source">{entry.source}</span>
           </button>
         ))}

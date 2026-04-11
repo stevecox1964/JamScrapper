@@ -35,13 +35,20 @@ def init_db(conn: sqlite3.Connection):
         );
 
         CREATE TABLE IF NOT EXISTS play_history (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            artist      TEXT NOT NULL DEFAULT '',
-            title       TEXT NOT NULL DEFAULT '',
-            album       TEXT NOT NULL DEFAULT '',
-            source      TEXT NOT NULL DEFAULT '',
-            track_id    INTEGER REFERENCES tracks(id),
-            played_at   TEXT NOT NULL
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            artist          TEXT NOT NULL DEFAULT '',
+            title           TEXT NOT NULL DEFAULT '',
+            album           TEXT NOT NULL DEFAULT '',
+            source          TEXT NOT NULL DEFAULT '',
+            track_id        INTEGER REFERENCES tracks(id),
+            genres          TEXT DEFAULT '[]',
+            dominant_colors TEXT DEFAULT '[]',
+            artist_images   TEXT DEFAULT '[]',
+            youtube_video_id TEXT DEFAULT '',
+            youtube_title   TEXT DEFAULT '',
+            youtube_url     TEXT DEFAULT '',
+            thumbnail_url   TEXT DEFAULT '',
+            played_at       TEXT NOT NULL
         );
 
         CREATE TABLE IF NOT EXISTS playlists (
@@ -99,6 +106,22 @@ def init_db(conn: sqlite3.Connection):
         CREATE INDEX IF NOT EXISTS idx_downloads_state ON downloads(state);
         CREATE INDEX IF NOT EXISTS idx_tracks_artist_title ON tracks(artist, title);
     """)
+    conn.commit()
+
+    # Migrate existing play_history tables missing new columns
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(play_history)").fetchall()}
+    new_columns = {
+        "genres": "TEXT DEFAULT '[]'",
+        "dominant_colors": "TEXT DEFAULT '[]'",
+        "artist_images": "TEXT DEFAULT '[]'",
+        "youtube_video_id": "TEXT DEFAULT ''",
+        "youtube_title": "TEXT DEFAULT ''",
+        "youtube_url": "TEXT DEFAULT ''",
+        "thumbnail_url": "TEXT DEFAULT ''",
+    }
+    for col, col_type in new_columns.items():
+        if col not in existing:
+            conn.execute(f"ALTER TABLE play_history ADD COLUMN {col} {col_type}")
     conn.commit()
 
 
