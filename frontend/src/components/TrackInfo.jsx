@@ -70,7 +70,7 @@ export default function TrackInfo({ media, hasVideo }) {
           >
             {media.artist}
           </div>
-          <div className="track-title">Playing — {media.title}</div>
+          <div className="track-title">Now Playing — {media.title}</div>
           {media.album && (
             <div className="track-album">{media.album}</div>
           )}
@@ -81,10 +81,8 @@ export default function TrackInfo({ media, hasVideo }) {
               ))}
             </div>
           )}
-          {media.detectionSource && (
-            <span className="detection-badge">
-              {media.detectionSource === 'fingerprint' ? 'Identified' : 'Now Playing'}
-            </span>
+          {media.detectionSource === 'fingerprint' && (
+            <span className="detection-badge">Identified</span>
           )}
           {media.youtubeVideoId && (
             <div className="track-share">
