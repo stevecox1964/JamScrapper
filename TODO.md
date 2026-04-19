@@ -12,6 +12,7 @@
 - Artist profile system (genres, colors, images, mood tags)
 - Song history panel — card layout with thumbnail, artist image, genres, colors, album
 - History updates in real-time (polls every 3s while open; enrichment fills in within seconds)
+- Smooth track transitions — Live video fades to 20% while awaiting YouTube search for the new track, restores when it loads
 - Playable history rows (click to stream from history)
 - Track info overlay with album art and genres
 - Audio fingerprinting module (needs AcoustID API key to activate)

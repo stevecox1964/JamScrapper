@@ -74,6 +74,7 @@ export default function YouTubeBackground({
   const playerIdRef = useRef('');
   const playerTimerRef = useRef(null);
   const [fadeOut, setFadeOut] = useState(0);
+  const [liveFade, setLiveFade] = useState(false);
   const FADE_DURATION = 3; // seconds before end to start fading
 
   const isPlayerMode = appMode === 'player';
@@ -176,6 +177,19 @@ export default function YouTubeBackground({
       else p.playVideo();
     } catch (_) {}
   }, [isPlayerMode]);
+
+  // Fade the live layer during track transitions:
+  // when the new track arrives but its YouTube video hasn't been found yet
+  // (videoId goes empty), dim the previous video instead of letting it
+  // play on at full opacity. Restore when the new video loads.
+  useEffect(() => {
+    if (isPlayerMode) return;
+    if (videoId) {
+      setLiveFade(false);
+    } else if (liveIdRef.current) {
+      setLiveFade(true);
+    }
+  }, [videoId, isPlayerMode]);
 
   // PLAYER mode: YouTube IFrame — unmuted, no loop, track ended detection
   useEffect(() => {
@@ -281,7 +295,10 @@ export default function YouTubeBackground({
 
   return (
     <div className="youtube-bg" style={{ visibility: effectiveVisibility ? 'visible' : 'hidden' }}>
-      <div className={`yt-layer${showLive ? '' : ' hidden'}`}>
+      <div
+        className={`yt-layer${showLive ? '' : ' hidden'}`}
+        style={{ opacity: liveFade ? 0.2 : 1, transition: 'opacity 0.6s ease' }}
+      >
         <div ref={liveTargetRef} />
       </div>
 
