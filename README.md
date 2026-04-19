@@ -1,21 +1,17 @@
 # JamScrapper
 
-A real-time music visualizer that captures system audio on Windows and renders it through interactive 2D and 3D visualizations in the browser. Think MTV built backwards — start from the music, figure out who's playing, then build the visuals around them.
+A real-time music player and video aggregator for Windows. It detects what's playing on your streaming apps, enriches it with artist metadata, and streams the music video behind a live visualizer — all without downloading anything.
 
 ## How It Works
 
-A Python backend captures system audio via WASAPI loopback (anything playing through your speakers), runs FFT analysis, and streams frequency + waveform data over WebSocket at ~30fps. A React frontend renders it across 7 visualizer modes.
-
-The backend also identifies what's playing via three methods:
-- **Chrome extension** — reads track info directly from the player DOM on Pandora, Spotify, YouTube Music, SoundCloud, and others (highest priority source)
+A Python backend identifies what's playing via three detection methods:
+- **Chrome extension** — reads track info directly from the player DOM on Pandora, Spotify, YouTube Music, SoundCloud, and others (highest priority)
 - **Windows media session** — reads "Now Playing" metadata from apps that expose it (Spotify desktop, YouTube Music, etc.)
 - **Audio fingerprinting** (optional) — identifies songs from the audio signal via AcoustID/Chromaprint
 
-Source priority is enforced: the extension is trusted over WinRT for 5 seconds after it last reported, preventing stale or mismatched Windows media sessions from overriding accurate DOM data.
+When a track is detected, the system immediately broadcasts it to the frontend, then enriches in the background: fetches artist images, extracts dominant colors, pulls genre tags from MusicBrainz, looks up the album, and finds the YouTube video. Source priority is enforced — the extension is trusted over WinRT for 5 seconds after it last reported, preventing stale Windows media sessions from overriding accurate DOM data.
 
-When an artist is detected, the system fetches images, extracts dominant colors, pulls genre tags from MusicBrainz, looks up the album via MusicBrainz recording search, and builds a persistent artist profile stored in SQLite. Next time that artist plays, the profile loads instantly.
-
-Every visualizer is infused with media — artist images, album art, and YouTube thumbnails replace plain geometric shapes. A YouTube music video plays as a background layer behind all modes, starting instantly via YouTube's IFrame API.
+All enrichment is non-blocking — track info appears instantly, metadata fills in as it arrives.
 
 ## Playlist System
 
@@ -31,31 +27,22 @@ JamScrapper supports two workflows:
 - **Live mode** — detect tracks from streaming apps, play muted YouTube video background
 - **Player mode** — stream YouTube videos with audio, queue playlists, and auto-advance tracks
 
-Player mode streams directly via the YouTube IFrame API — no local files needed. The visualizer overlay stays on top so FX layer over the video.
+Player mode streams directly via the YouTube IFrame API — no local files needed. Player state (queue, position, volume) persists to SQLite and restores on reload.
 
-Player state (queue, position, volume) is persisted to SQLite — reloading the page or restarting the app picks up right where you left off.
+## History Panel
 
-## History Playback
-
-Song history is playable:
-- History entries are enriched with cached YouTube video metadata
-- Click any history row with a known video to jump straight into Player mode
-- Tracks without a cached YouTube result are shown as non-playable
+The play history panel shows a live card view of recent tracks:
+- Thumbnail, artist image, title, album, genres, and color palette per entry
+- Updates in real-time as enrichment data arrives (thumbnail, genres, colors fill in within seconds)
+- Click any playable entry to jump straight into Player mode
+- New songs appear within ~3 seconds of detection
 
 ## Visualizer Modes
 
-**2D (Canvas)**
-- **Bars** — Frequency spectrum with album art revealed through each bar, artist image floating in background
-- **Waveform** — Audio waveform with artist images riding the curve, bobbing with the music
-- **Radial** — Circular frequency display with album art at center, artist images orbiting around it
+- **Video** — YouTube music video streams as the full-screen background (IFrame API)
+- **Starfield** — 3D stars flying past camera with artist image cards streaking through the field (Three.js)
 
-**3D (Three.js)**
-- **Tunnel** — Fly-through tunnel with image panels rotating around the walls
-- **Galaxy** — Particle galaxy with album art as the pulsing core, image chips in spiral arms
-- **Terrain** — Wireframe terrain with album art sun and floating image billboards above the surface
-- **Starfield** — Stars flying past camera with image cards streaking through the field
-
-All modes render with transparent backgrounds so the YouTube music video bleeds through behind everything.
+All modes render with transparent backgrounds so the YouTube video bleeds through.
 
 ## Tech Stack
 
@@ -137,12 +124,10 @@ Opens at `http://localhost:5173`. Connects to backend at `localhost:8765`/`8766`
 
 1. Run `start.bat` (or start backend + frontend manually)
 2. Play audio on any supported streaming site (Pandora, Spotify, YouTube Music, etc.)
-3. Track info appears in the bottom-left overlay
-4. The music video streams instantly as a background layer (YouTube IFrame)
-5. Pick a visualizer mode from the header selector
-6. Toggle song history or playlist panels from the header
-7. Switch to **Player** mode to stream playlists and history tracks with audio
-8. Click any row in **History** with a known video to launch it instantly
+3. Track info and music video appear automatically
+4. Toggle song history or playlist panels from the header
+5. Switch to **Player** mode to stream playlists and history tracks with audio
+6. Click any row in **History** with a known video to launch it instantly
 
 ### Optional: Audio Fingerprinting
 
@@ -152,61 +137,58 @@ To enable song identification from the audio signal (for apps that don't expose 
 2. Create `backend/.env` with `ACOUSTID_API_KEY=your_key`
 3. Install [fpcalc](https://acoustid.org/chromaprint) and add to PATH
 
-Without this, the app still works — it just relies on the Windows media session and Chrome extension for track detection.
+Without this, the app still works — it relies on the Windows media session and Chrome extension for track detection.
 
 ## Project Structure
 
 ```
 backend/
-  server.py            - Audio capture, FFT, WebSocket, media polling, HTTP/static server
-  db.py                - SQLite database layer (WAL mode, auto-init)
-  playlist_store.py    - Playlist CRUD (SQLite)
-  artist_store.py      - Artist profile persistence, color extraction, genre mapping (SQLite)
-  fingerprinter.py     - Audio fingerprinting via AcoustID (optional)
-  history_store.py     - Song play history logging (SQLite)
-  media_cache.py       - YouTube video search and thumbnail caching via yt-dlp (SQLite)
-  choreography_store.py - Choreography data persistence (SQLite)
-  player_state_store.py - Player mode state persistence (queue, position, volume)
-  migrate_json_to_sqlite.py - One-time migration from legacy JSON files
+  server.py              - WebSocket, media polling, HTTP/static server, enrichment pipeline
+  db.py                  - SQLite database layer (WAL mode, auto-init)
+  playlist_store.py      - Playlist CRUD (SQLite)
+  artist_store.py        - Artist profile persistence, color extraction, genre mapping
+  fingerprinter.py       - Audio fingerprinting via AcoustID (optional)
+  history_store.py       - Song play history logging (SQLite)
+  media_cache.py         - YouTube video search and thumbnail caching via yt-dlp
+  choreography_store.py  - Choreography data persistence
+  player_state_store.py  - Player mode state persistence (queue, position, volume)
   data/
-    visualaudio.db     - All app data (auto-created)
-    media_cache/       - Cached thumbnails (auto-generated)
+    visualaudio.db       - All app data (auto-created)
+    media_cache/         - Cached thumbnails (auto-generated)
 extension/
-  manifest.json        - Chrome extension manifest (Manifest V3)
-  content.js           - DOM scraper + MediaSession interceptor for streaming sites
+  manifest.json          - Chrome extension manifest (Manifest V3)
+  content.js             - DOM scraper + MediaSession interceptor for streaming sites
 frontend/
   src/
-    config.js               - Centralized API/WebSocket URL config (dev vs production)
-    App.jsx                 - Main app layout, mode switching
+    config.js                 - Centralized API/WebSocket URL config (dev vs production)
+    App.jsx                   - Main app layout, mode switching
     components/
-      Visualizer.jsx        - 2D canvas visualizers (passes media assets)
-      ThreeVisualizer.jsx   - 3D Three.js visualizers (passes texture manager)
-      TrackInfo.jsx         - Track info overlay with genres and colors
-      ModeSelector.jsx      - Mode picker UI
-      YouTubeBackground.jsx - Video background (YouTube IFrame, live + player modes)
-      SongHistory.jsx       - Collapsible play history panel with playable rows
-      PlaylistPanel.jsx     - Playlist management panel
-      LibraryPanel.jsx      - Saved library + playlist playback panel (Player mode)
-      PlayerControls.jsx    - Transport controls (play/pause, seek, volume, next/prev)
+      Visualizer.jsx          - 2D canvas visualizer host
+      ThreeVisualizer.jsx     - 3D Three.js visualizer host
+      TrackInfo.jsx           - Track info overlay with genres and colors
+      ModeSelector.jsx        - Mode picker (Video, Starfield)
+      YouTubeBackground.jsx   - Video background (YouTube IFrame, live + player modes)
+      SongHistory.jsx         - Live history panel with card layout and real-time updates
+      PlaylistPanel.jsx       - Playlist management panel
+      LibraryPanel.jsx        - Saved library + playlist playback panel (Player mode)
+      PlayerControls.jsx      - Transport controls (play/pause, seek, volume, next/prev)
     hooks/
-      useAudioWebSocket.js  - WebSocket data hook + /now-playing startup fallback
+      useAudioWebSocket.js    - WebSocket data hook + /now-playing startup fallback
     utils/
-      mediaTextureManager.js - Shared image/texture loading for all visualizers
-    visualizers/             - Individual visualizer implementations
+      mediaTextureManager.js  - Shared image/texture loading for all visualizers
+    visualizers/              - Individual visualizer implementations
 start.bat                - One-click launcher for backend + frontend (dev mode)
 ```
 
 ## Roadmap
 
-- Beat detection for pulse/flash effects
-- Keyboard shortcuts to cycle modes
+- Repeat/shuffle toggles for Player mode
+- Keyboard shortcuts to cycle modes / control playback
 - Fullscreen toggle
 - Smooth transitions between modes
-- Bass energy driving camera shake / color intensity in 3D modes
-- Plugin architecture for community visualizers
-- More visualizer modes (spectrum waterfall, DNA helix, etc.)
-- Song-specific choreographed animations
-- Smart queue/repeat/shuffle controls for Player mode
+- Playback sync (pause detection, visualizer freeze, paused UI badge)
+- Smart queue auto-fill (related tracks when queue ends)
+- Mood-based sequencing from play history
 
 ## Supported Streaming Sites
 
@@ -222,6 +204,5 @@ The Windows media session fallback works with any app that exposes "Now Playing"
 ## Requirements
 
 - Windows only (WASAPI loopback + WinRT media session)
-- Audio must be playing through the default output device
 - Google Chrome with the extension installed (for web player track detection)
 - `yt-dlp` on PATH (for YouTube search and thumbnails)

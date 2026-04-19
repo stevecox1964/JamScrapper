@@ -181,9 +181,9 @@ export default function App() {
           </button>
         </div>
         <ModeSelector mode={mode} setMode={setMode} />
-        <div className={`status ${connected ? 'connected' : 'disconnected'}`}>
-          {connected ? 'Connected' : 'Connecting...'}
-        </div>
+        {!connected && (
+          <div className="status disconnected">Connecting...</div>
+        )}
         <button className="debug-toggle" onClick={() => setShowHistory(h => !h)}>
           {showHistory ? 'Hide' : 'Show'} History
         </button>

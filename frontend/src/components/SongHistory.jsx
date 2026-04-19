@@ -1,89 +1,152 @@
 import { useState, useEffect, useRef } from 'react';
-import { API_BASE } from '../config';
+import { API_BASE, thumbnailUrl } from '../config';
+
+function formatDuration(seconds) {
+  if (!seconds || seconds <= 0) return '';
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
+function resolveUrl(url) {
+  if (!url) return '';
+  if (url.startsWith('http://') || url.startsWith('https://')) return url;
+  if (url.startsWith('/')) return `${API_BASE}${url}`;
+  return url;
+}
+
+function HistoryEntryContent({ entry, isNowPlaying }) {
+  const thumbSrc = entry.videoId
+    ? thumbnailUrl(entry.videoId)
+    : resolveUrl(entry.thumbnail_url);
+  const artistImg = Array.isArray(entry.artist_images) && entry.artist_images.length > 0
+    ? resolveUrl(entry.artist_images[0])
+    : '';
+  const time = new Date(entry.timestamp).toLocaleTimeString();
+  const duration = formatDuration(entry.duration);
+
+  return (
+    <>
+      <div className="history-thumb-wrap">
+        {thumbSrc ? (
+          <img src={thumbSrc} alt="" className="history-thumb" loading="lazy" />
+        ) : (
+          <div className="history-thumb history-thumb-placeholder" />
+        )}
+        {artistImg && (
+          <img src={artistImg} alt="" className="history-artist-img" loading="lazy" />
+        )}
+      </div>
+      <div className="history-body">
+        <div className="history-row-top">
+          <span className="history-time">{time}</span>
+          {isNowPlaying && <span className="history-now-badge">NOW PLAYING</span>}
+          <span className="history-source">{entry.source}</span>
+          {duration && <span className="history-duration">{duration}</span>}
+        </div>
+        <div className="history-artist">{entry.artist || 'Unknown artist'}</div>
+        <div className="history-title-line">{entry.title || 'Unknown title'}</div>
+        {entry.album && <div className="history-album">{entry.album}</div>}
+        {entry.genres && entry.genres.length > 0 && (
+          <div className="history-genres">
+            {entry.genres.slice(0, 6).map((g, j) => (
+              <span key={j} className="history-genre-tag">{g}</span>
+            ))}
+          </div>
+        )}
+        {entry.dominant_colors && entry.dominant_colors.length > 0 && (
+          <div className="history-colors">
+            {entry.dominant_colors.slice(0, 6).map((c, j) => (
+              <span
+                key={j}
+                className="history-color-dot"
+                style={{ backgroundColor: `rgb(${c[0]},${c[1]},${c[2]})` }}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
 
 export default function SongHistory({ historyVersion, visible, onPlayFromHistory, activeVideoId }) {
   const [history, setHistory] = useState([]);
   const [info, setInfo] = useState('');
   const lastVersion = useRef(0);
 
-  // Fetch on mount
-  useEffect(() => {
+  const fetchHistory = () => {
     fetch(`${API_BASE}/history/playable`)
       .then((r) => r.json())
       .then(setHistory)
       .catch(() => {});
+  };
+
+  useEffect(() => {
+    fetchHistory();
   }, []);
 
-  // Refetch when history version bumps
   useEffect(() => {
     if (historyVersion !== lastVersion.current) {
       lastVersion.current = historyVersion;
-      fetch(`${API_BASE}/history/playable`)
-        .then((r) => r.json())
-        .then(setHistory)
-        .catch(() => {});
+      fetchHistory();
     }
   }, [historyVersion]);
 
+  // Poll while visible so enrichment backfills (thumbnail, genres, colors)
+  // show up on the top row without waiting for the next track.
+  useEffect(() => {
+    if (!visible) return;
+    const id = setInterval(fetchHistory, 3000);
+    return () => clearInterval(id);
+  }, [visible]);
+
   if (!visible) return null;
+
+  const handleClick = (entry) => {
+    if (!entry.isPlayable) {
+      setInfo('No YouTube video found for this track.');
+      window.setTimeout(() => setInfo(''), 2000);
+      return;
+    }
+    const playable = history.filter(e => e.isPlayable).map(e => ({
+      videoId: e.videoId,
+      artist: e.artist,
+      title: e.title,
+      videoTitle: e.videoTitle || e.title || '',
+      duration: e.duration || 0,
+    }));
+    const clickedPlayableIndex = history
+      .filter(e => e.isPlayable)
+      .findIndex(e => e === entry);
+    onPlayFromHistory?.(playable, Math.max(0, clickedPlayableIndex));
+  };
 
   return (
     <div className="history-panel">
       <div className="history-title">Play History</div>
       {info && <div className="history-info">{info}</div>}
       <div className="history-list">
-        {history.map((entry, i) => (
-          <button
-            key={i}
-            className={`history-entry history-entry-btn${entry.isPlayable ? ' playable' : ''}${activeVideoId && entry.videoId === activeVideoId ? ' now-playing' : ''}`}
-            onClick={() => {
-              if (!entry.isPlayable) {
-                setInfo('No YouTube video found for this track.');
-                window.setTimeout(() => setInfo(''), 2000);
-                return;
-              }
-              const playable = history.filter(e => e.isPlayable).map(e => ({
-                videoId: e.videoId,
-                artist: e.artist,
-                title: e.title,
-                videoTitle: e.videoTitle || e.title || '',
-                duration: e.duration || 0,
-              }));
-              const clickedPlayableIndex = history
-                .filter(e => e.isPlayable)
-                .findIndex(e => e === entry);
-              onPlayFromHistory?.(playable, Math.max(0, clickedPlayableIndex));
-            }}
-            title={entry.isPlayable ? 'Play on YouTube' : 'No video found'}
-          >
-            <span className="history-time">
-              {new Date(entry.timestamp).toLocaleTimeString()}
-            </span>
-            <span className="history-track">
-              {entry.artist} &mdash; {entry.title}
-              {entry.album && <span className="history-album"> ({entry.album})</span>}
-            </span>
-            {entry.genres && entry.genres.length > 0 && (
-              <span className="history-genres">
-                {entry.genres.slice(0, 3).map((g, j) => (
-                  <span key={j} className="history-genre-tag">{g}</span>
-                ))}
-              </span>
-            )}
-            {entry.dominant_colors && entry.dominant_colors.length > 0 && (
-              <span className="history-colors">
-                {entry.dominant_colors.slice(0, 4).map((c, j) => (
-                  <span
-                    key={j}
-                    className="history-color-dot"
-                    style={{ backgroundColor: `rgb(${c[0]},${c[1]},${c[2]})` }}
-                  />
-                ))}
-              </span>
-            )}
-            <span className="history-source">{entry.source}</span>
-          </button>
-        ))}
+        {history.map((entry, i) => {
+          const isNowPlaying = i === 0 || (activeVideoId && entry.videoId === activeVideoId);
+          const classes = [
+            'history-card',
+            entry.isPlayable ? 'playable' : '',
+            isNowPlaying ? 'now-playing' : '',
+            i === 0 ? 'hero' : '',
+          ].filter(Boolean).join(' ');
+          return (
+            <button
+              key={i}
+              type="button"
+              className={classes}
+              onClick={() => handleClick(entry)}
+              title={entry.isPlayable ? 'Play on YouTube' : 'No video found'}
+            >
+              <HistoryEntryContent entry={entry} isNowPlaying={isNowPlaying} />
+            </button>
+          );
+        })}
         {history.length === 0 && (
           <div className="history-empty">No songs played yet</div>
         )}
