@@ -12,6 +12,15 @@ class HistoryStore:
 
     def add(self, artist, title, album="", source=""):
         ts = datetime.now(timezone.utc).isoformat()
+
+        # Dedup: skip if the most recent entry is the same artist+title
+        last = self._conn.execute(
+            "SELECT id, artist, title FROM play_history ORDER BY played_at DESC LIMIT 1"
+        ).fetchone()
+        if last and last["artist"].lower().strip() == artist.lower().strip() \
+               and last["title"].lower().strip() == title.lower().strip():
+            return last["id"]  # Return existing row ID for enrichment backfill
+
         # Try to link to a track
         row = self._conn.execute(
             "SELECT id FROM tracks WHERE artist = ? AND title = ? LIMIT 1",
