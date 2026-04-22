@@ -13,6 +13,8 @@ When a track is detected, the system immediately broadcasts it to the frontend, 
 
 All enrichment is non-blocking — track info appears instantly, metadata fills in as it arrives.
 
+The track info card slides in from the left when a new song starts, then auto-retracts after a few seconds to keep the view clean. Hover to keep it open, or click the arrow tab to pull it back out anytime.
+
 ## Playlist System
 
 Create playlists from any track that has a YouTube video:
@@ -165,7 +167,7 @@ frontend/
     components/
       Visualizer.jsx          - 2D canvas visualizer host
       ThreeVisualizer.jsx     - 3D Three.js visualizer host
-      TrackInfo.jsx           - Track info overlay with genres and colors
+      TrackInfo.jsx           - Retractable track info card (auto-slides in/out)
       ModeSelector.jsx        - Mode picker (Video, Starfield)
       YouTubeBackground.jsx   - Video background (YouTube IFrame, live + player modes)
       SongHistory.jsx         - Live history panel with card layout and real-time updates

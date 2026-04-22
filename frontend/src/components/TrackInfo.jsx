@@ -5,12 +5,28 @@ import { API_BASE } from '../config';
 
 export default function TrackInfo({ media, hasVideo }) {
   const [visible, setVisible] = useState(false);
+  const [retracted, setRetracted] = useState(false);
+  const retractTimer = useRef(null);
   const choreographyRef = useRef([]);
 
+  // Slide in on new song, auto-retract after 6 seconds
   useEffect(() => {
     if (media?.artist || media?.title) {
       setVisible(true);
+      setRetracted(false);
+
+      // Clear any existing timer
+      if (retractTimer.current) clearTimeout(retractTimer.current);
+
+      // Auto-retract after 6 seconds
+      retractTimer.current = setTimeout(() => {
+        setRetracted(true);
+      }, 6000);
     }
+
+    return () => {
+      if (retractTimer.current) clearTimeout(retractTimer.current);
+    };
   }, [media?.artist, media?.title]);
 
   // Save choreography when track changes (if we have events from the previous track)
@@ -57,9 +73,34 @@ export default function TrackInfo({ media, hasVideo }) {
       />
 
       <div
-        className={`track-info ${visible ? 'visible' : ''}`}
+        className={`track-info ${visible ? 'visible' : ''} ${retracted ? 'retracted' : ''}`}
         style={accentColor ? { borderColor: `${accentColor}33` } : undefined}
+        onMouseEnter={() => {
+          if (retractTimer.current) clearTimeout(retractTimer.current);
+        }}
+        onMouseLeave={() => {
+          if (!retracted) {
+            retractTimer.current = setTimeout(() => setRetracted(true), 3000);
+          }
+        }}
       >
+        {/* Pull-tab arrow — visible when retracted */}
+        <button
+          type="button"
+          className="track-info-tab"
+          onClick={(e) => {
+            e.stopPropagation();
+            setRetracted((r) => !r);
+            // If pulling out, restart the auto-retract timer
+            if (retracted) {
+              if (retractTimer.current) clearTimeout(retractTimer.current);
+              retractTimer.current = setTimeout(() => setRetracted(true), 6000);
+            }
+          }}
+          title={retracted ? 'Show track info' : 'Hide track info'}
+        >
+          <span className="tab-arrow">{retracted ? '▶' : '◀'}</span>
+        </button>
         {albumArt && (
           <img src={albumArt} alt="Album art" className="album-art" />
         )}
