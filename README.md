@@ -37,7 +37,9 @@ The play history panel shows a live card view of recent tracks:
 - Thumbnail, artist image, title, album, genres, and color palette per entry
 - Updates in real-time as enrichment data arrives (thumbnail, genres, colors fill in within seconds)
 - Click any playable entry to jump straight into Player mode
-- New songs appear within ~3 seconds of detection
+- Visible by default on launch — no need to toggle it open
+- Retries on startup until data arrives, handling backend startup races
+- Each song is stored once — replaying a song bumps it to the top rather than creating a duplicate
 
 ## Visualizer Modes
 

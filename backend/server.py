@@ -110,11 +110,15 @@ _enrichment_track_key = ""  # track key that current enrichment is for
 SOURCE_PRIORITY = {"extension": 3, "chrome_tab": 2, "media_session": 1, "fingerprint": 0}
 EXTENSION_PRIORITY_WINDOW = 5.0  # seconds to trust extension over lower sources
 
-# Initialize SQLite database
+# Initialize SQLite database (main connection for asyncio loop)
 _db_conn = get_db()
 init_db(_db_conn)
 
-# Artist profile storage, audio fingerprinter, history, and media cache
+# Separate connection for the HTTP server thread — avoids cross-thread cursor corruption.
+# WAL mode + separate connections = safe concurrent reads while the async loop writes.
+_http_db_conn = get_db()
+
+# Artist profile storage, audio fingerprinter, history, and media cache (main thread)
 artist_store = ArtistStore(_db_conn)
 fingerprinter = AudioFingerprinter(api_key=load_acoustid_key())
 history_store = HistoryStore(_db_conn)
@@ -122,6 +126,10 @@ media_cache = MediaCache(_db_conn)
 playlist_store = PlaylistStore(_db_conn)
 choreography_store = ChoreographyStore(_db_conn)
 player_state_store = PlayerStateStore(_db_conn)
+
+# HTTP-thread stores — read-only operations from the HTTP handler use these
+history_store_http = HistoryStore(_http_db_conn)
+media_cache_http = MediaCache(_http_db_conn)
 
 
 # Known streaming services and their tab title patterns
@@ -383,6 +391,10 @@ async def _handle_track_detected(artist, title, album, thumb_b64, source):
     """Common handler for when a track is detected (from any source)."""
     global _last_track_key, _last_track_seen_at, media_info, _profile_version, _detection_source
     global _extension_seen_at, _enrichment_track_key
+
+    # Reject incomplete detections — need both artist and title
+    if not (artist and artist.strip()) or not (title and title.strip()):
+        return
 
     track_key = _normalize_key(artist, title)
     now = asyncio.get_running_loop().time()
@@ -812,23 +824,41 @@ class TrackHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == "/history":
-            self._json_response(history_store.get_recent(50))
+            try:
+                self._json_response(history_store_http.get_recent(50))
+            except Exception as e:
+                print(f"  [ERR] /history failed: {e}")
+                self._json_response([])
 
         elif self.path == "/history/playable":
             enriched = []
-            for entry in history_store.get_recent(100):
-                artist = (entry.get("artist") or "").strip()
-                title = (entry.get("title") or "").strip()
-                cached = media_cache.get_cached(artist, title) if (artist or title) else None
-                # Prefer cached YouTube data, fall back to stored history data
-                video_id = (cached.get("videoId", "") if cached else "") or entry.get("youtube_video_id", "")
-                enriched.append({
-                    **entry,
-                    "videoId": video_id,
-                    "videoTitle": (cached.get("videoTitle", "") if cached else "") or entry.get("youtube_title", ""),
-                    "duration": (cached.get("duration", 0) if cached else 0),
-                    "isPlayable": bool(video_id),
-                })
+            try:
+                entries = history_store_http.get_recent(100)
+            except Exception as e:
+                print(f"  [ERR] /history/playable get_recent failed: {e}")
+                entries = []
+            print(f"  [HTTP] /history/playable returning {len(entries)} entries")
+            for entry in entries:
+                try:
+                    artist = (entry.get("artist") or "").strip()
+                    title = (entry.get("title") or "").strip()
+                    cached = None
+                    try:
+                        cached = media_cache_http.get_cached(artist, title) if (artist or title) else None
+                    except Exception as e:
+                        print(f"  [WARN] media_cache lookup failed for {artist}-{title}: {e}")
+                    # Prefer cached YouTube data, fall back to stored history data
+                    video_id = (cached.get("videoId", "") if cached else "") or entry.get("youtube_video_id", "")
+                    enriched.append({
+                        **entry,
+                        "videoId": video_id,
+                        "videoTitle": (cached.get("videoTitle", "") if cached else "") or entry.get("youtube_title", ""),
+                        "duration": (cached.get("duration", 0) if cached else 0),
+                        "isPlayable": bool(video_id),
+                    })
+                except Exception as e:
+                    print(f"  [WARN] skip history entry due to error: {e}")
+                    continue
             self._json_response(enriched)
 
         elif self.path == "/now-playing":
@@ -918,7 +948,7 @@ class TrackHandler(BaseHTTPRequestHandler):
             artist = (body.get("artist") or "").strip()
             title = (body.get("title") or "").strip()
             album = (body.get("album") or "").strip()
-            if artist or title:
+            if artist and title:
                 # Preserve album from prior send if this one is empty (DOM poll has no album)
                 if not album and _extension_track and _extension_track.get("album"):
                     prev = _extension_track

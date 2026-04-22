@@ -13,13 +13,19 @@ class HistoryStore:
     def add(self, artist, title, album="", source=""):
         ts = datetime.now(timezone.utc).isoformat()
 
-        # Dedup: skip if the most recent entry is the same artist+title
-        last = self._conn.execute(
-            "SELECT id, artist, title FROM play_history ORDER BY played_at DESC LIMIT 1"
+        # Dedup: skip if same artist+title exists anywhere in history
+        existing = self._conn.execute(
+            "SELECT id FROM play_history WHERE LOWER(TRIM(artist)) = ? AND LOWER(TRIM(title)) = ? ORDER BY played_at DESC LIMIT 1",
+            (artist.lower().strip(), title.lower().strip())
         ).fetchone()
-        if last and last["artist"].lower().strip() == artist.lower().strip() \
-               and last["title"].lower().strip() == title.lower().strip():
-            return last["id"]  # Return existing row ID for enrichment backfill
+        if existing:
+            # Update the timestamp so it floats to the top as "most recent play"
+            self._conn.execute(
+                "UPDATE play_history SET played_at = ?, source = ? WHERE id = ?",
+                (ts, source, existing["id"])
+            )
+            self._conn.commit()
+            return existing["id"]  # Return existing row ID for enrichment backfill
 
         # Try to link to a track
         row = self._conn.execute(

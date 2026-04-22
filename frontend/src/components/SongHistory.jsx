@@ -70,22 +70,49 @@ function HistoryEntryContent({ entry, isNowPlaying }) {
   );
 }
 
-export default function SongHistory({ historyVersion, visible, onPlayFromHistory, activeVideoId }) {
+export default function SongHistory({ historyVersion, visible, onPlayFromHistory, activeVideoId, media }) {
   const [history, setHistory] = useState([]);
   const [info, setInfo] = useState('');
   const lastVersion = useRef(0);
 
   const fetchHistory = () => {
-    fetch(`${API_BASE}/history/playable`)
-      .then((r) => r.json())
-      .then(setHistory)
-      .catch(() => {});
+    return fetch(`${API_BASE}/history/playable`)
+      .then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
+      .then((data) => {
+        const arr = Array.isArray(data) ? data : [];
+        console.log('[SongHistory] Fetched', arr.length, 'entries');
+        setHistory(arr);
+        return arr;
+      })
+      .catch((err) => {
+        console.error('[SongHistory] Fetch failed:', err, 'URL:', `${API_BASE}/history/playable`);
+        return null;
+      });
   };
 
+  // Startup retry loop: retry until we get a non-empty response or give up after ~15s.
+  // Handles the race where frontend mounts before backend is ready.
   useEffect(() => {
-    fetchHistory();
+    let cancelled = false;
+    let attempts = 0;
+    const maxAttempts = 15;
+    const tryFetch = async () => {
+      if (cancelled) return;
+      attempts++;
+      const result = await fetchHistory();
+      // Keep retrying on failure OR empty result until we get data or hit cap
+      if (!cancelled && attempts < maxAttempts && (!result || result.length === 0)) {
+        setTimeout(tryFetch, 1000);
+      }
+    };
+    tryFetch();
+    return () => { cancelled = true; };
   }, []);
 
+  // Fetch when a new track is detected
   useEffect(() => {
     if (historyVersion !== lastVersion.current) {
       lastVersion.current = historyVersion;
@@ -93,10 +120,17 @@ export default function SongHistory({ historyVersion, visible, onPlayFromHistory
     }
   }, [historyVersion]);
 
-  // Poll while visible so enrichment backfills (thumbnail, genres, colors)
-  // show up on the top row without waiting for the next track.
+  // Extra safety: fetch whenever the live media changes.
+  // This covers startup races where historyVersion can be stale.
+  useEffect(() => {
+    if (!media?.artist && !media?.title && !media?.youtubeVideoId) return;
+    fetchHistory();
+  }, [media?.artist, media?.title, media?.youtubeVideoId]);
+
+  // Fetch immediately when panel becomes visible + poll for enrichment backfills
   useEffect(() => {
     if (!visible) return;
+    fetchHistory();
     const id = setInterval(fetchHistory, 3000);
     return () => clearInterval(id);
   }, [visible]);

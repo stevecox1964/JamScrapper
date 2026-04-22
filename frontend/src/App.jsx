@@ -18,7 +18,7 @@ const THREE_D_MODES = new Set(['tunnel', 'galaxy', 'terrain', 'starfield']);
 export default function App() {
   const [appMode, setAppMode] = useState('live');
   const [mode, setMode] = useState('video');
-  const [showHistory, setShowHistory] = useState(false);
+  const [showHistory, setShowHistory] = useState(true);
   const [showPlaylist, setShowPlaylist] = useState(false);
   const { dataRef, connected, media, historyVersion, refreshMedia } = useAudioWebSocket(WS_URL);
   const mediaManagerRef = useRef(new MediaTextureManager());
@@ -209,7 +209,7 @@ export default function App() {
       )}
 
       <TrackInfo media={displayMedia} hasVideo={Boolean(displayMedia?.youtubeVideoId || (isPlayer && currentPlayerTrack?.videoId))} />
-      <SongHistory historyVersion={historyVersion} visible={showHistory} onPlayFromHistory={playFromHistory} activeVideoId={isPlayer ? currentPlayerTrack?.videoId : null} />
+      <SongHistory historyVersion={historyVersion} visible={showHistory} onPlayFromHistory={playFromHistory} activeVideoId={isPlayer ? currentPlayerTrack?.videoId : null} media={media} />
       <PlaylistPanel visible={showPlaylist && appMode === 'live'} currentMedia={media} />
       <LibraryPanel
         visible={showPlaylist && appMode === 'player'}
