@@ -123,6 +123,7 @@ artist_store = ArtistStore(_db_conn)
 fingerprinter = AudioFingerprinter(api_key=load_acoustid_key())
 history_store = HistoryStore(_db_conn)
 media_cache = MediaCache(_db_conn)
+media_cache.purge_topic_channels()  # Clear static-image videos so they re-search as real music videos
 playlist_store = PlaylistStore(_db_conn)
 choreography_store = ChoreographyStore(_db_conn)
 player_state_store = PlayerStateStore(_db_conn)
@@ -438,6 +439,17 @@ async def _handle_track_detected(artist, title, album, thumb_b64, source):
     cached_yt = media_cache.get_cached(artist, title)
     cached_vid = cached_yt.get("videoId", "") if cached_yt else ""
 
+    # Three-state search status so the frontend can choose live-video vs synthetic.
+    # 'found'     — cached hit, play live video
+    # 'not_found' — recent miss cached, skip straight to synthetic
+    # 'searching' — enrichment will decide; frontend holds in loading state
+    if cached_vid:
+        initial_yt_status = "found"
+    elif media_cache.get_recent_miss(artist, title):
+        initial_yt_status = "not_found"
+    else:
+        initial_yt_status = "searching"
+
     # IMMEDIATE broadcast — no blocking, user sees track info instantly
     media_info = {
         "artist": artist,
@@ -457,6 +469,7 @@ async def _handle_track_detected(artist, title, album, thumb_b64, source):
         "youtubeUrl": cached_yt.get("videoUrl", "") if cached_yt else "",
         "youtubeThumbnailUrl": f"/media/thumbnails/{cached_vid}.jpg" if cached_vid else "",
         "youtubeDuration": cached_yt.get("duration", 0) if cached_yt else 0,
+        "youtubeSearchStatus": initial_yt_status,
     }
 
     # Fire off all enrichment as non-blocking background tasks
@@ -560,57 +573,135 @@ async def _enrich_track(artist, title, album, thumb_b64, history_id=None):
             print(f"  History backfill error: {e}")
 
 
+PROVISIONAL_NOT_FOUND_DELAY = 12  # seconds — flip status so synthetic can start early
+
+# Reference to the main asyncio loop so HTTP handlers (which run in a separate
+# thread) can schedule coroutines on it via run_coroutine_threadsafe.
+MAIN_LOOP = None
+
+
+async def _mark_track_unplayable(artist, title, video_id):
+    """Flip the currently-playing track to not_found if it matches.
+    Called from HTTP thread via run_coroutine_threadsafe when the YouTube
+    IFrame reports the cached videoId can't actually play."""
+    global media_info, _profile_version
+    if not (artist and title):
+        return
+    key = _normalize_key(artist, title)
+    # Only flip if the track is still the active one. Stale reports for a track
+    # that already advanced are ignored.
+    if key != _enrichment_track_key:
+        return
+    cur_vid = media_info.get("youtubeVideoId", "")
+    # Only flip if the reported bad id matches what we were showing (or if no id
+    # was reported — be defensive and flip anyway).
+    if video_id and cur_vid and cur_vid != video_id:
+        return
+    _profile_version += 1
+    media_info = {
+        **media_info,
+        "youtubeVideoId": "",
+        "youtubeTitle": "",
+        "youtubeUrl": "",
+        "youtubeThumbnailUrl": "",
+        "youtubeDuration": 0,
+        "youtubeSearchStatus": "not_found",
+        "_profileVersion": _profile_version,
+    }
+    print(f"  [YT] Marked unplayable: {artist} - {title} (video {video_id or 'unknown'})")
+
+
+def _set_yt_status(track_key, status):
+    """Update media_info.youtubeSearchStatus if the track is still current.
+    Returns True if the update was applied."""
+    global media_info, _profile_version
+    if _enrichment_track_key != track_key:
+        return False
+    if media_info.get("youtubeSearchStatus") == status:
+        return False
+    _profile_version += 1
+    media_info = {
+        **media_info,
+        "youtubeSearchStatus": status,
+        "_profileVersion": _profile_version,
+    }
+    return True
+
+
 async def _fetch_youtube_data(artist, title, history_id=None, max_retries=2):
     """Search YouTube and update media_info with video metadata.
-    Retries on failure with a delay — aggressively tries to find a video."""
+    Retries on failure with a delay — aggressively tries to find a video.
+    Emits youtubeSearchStatus transitions: searching → found | not_found.
+    If the search drags past PROVISIONAL_NOT_FOUND_DELAY, provisionally flips to
+    not_found so the frontend can switch to synthetic video; a later hit still
+    flips back to found."""
     global media_info, _profile_version
     my_key = _normalize_key(artist, title)
 
-    for attempt in range(1, max_retries + 1):
-        if _enrichment_track_key != my_key:
-            print(f"  [STALE] Aborting YouTube search for {artist} - {title}")
-            return
+    async def _provisional_flip():
         try:
-            result = await asyncio.to_thread(media_cache.search_youtube, artist, title)
-            if result and _enrichment_track_key == my_key:
-                video_id = result.get("videoId", "")
-                _profile_version += 1
-                media_info = {
-                    **media_info,
-                    "youtubeVideoId": video_id,
-                    "youtubeTitle": result.get("videoTitle", ""),
-                    "youtubeUrl": result.get("videoUrl", ""),
-                    "youtubeThumbnailUrl": f"/media/thumbnails/{result['videoId']}.jpg",
-                    "youtubeDuration": result.get("duration", 0),
-                    "_profileVersion": _profile_version,
-                }
-                # Backfill YouTube data to history
-                if history_id:
-                    try:
-                        history_store.update(
-                            history_id,
-                            youtube_video_id=video_id,
-                            youtube_title=result.get("videoTitle", ""),
-                            youtube_url=result.get("videoUrl", ""),
-                            thumbnail_url=f"/media/thumbnails/{video_id}.jpg",
-                        )
-                    except Exception as e:
-                        print(f"  YT history backfill error: {e}")
-                print(f"  YouTube: {result.get('videoTitle', '')} ({video_id})")
-                return  # Success
-            elif result:
-                print(f"  [STALE] Dropping YouTube results for {artist} - {title}")
-                return
-            # result is None — search failed, retry after delay
-            if attempt < max_retries:
-                print(f"  [YT] No result for {artist} - {title}, retrying in 5s (attempt {attempt}/{max_retries})")
-                await asyncio.sleep(5)
-        except Exception as e:
-            print(f"  YouTube fetch error (attempt {attempt}): {e}")
-            if attempt < max_retries:
-                await asyncio.sleep(5)
+            await asyncio.sleep(PROVISIONAL_NOT_FOUND_DELAY)
+        except asyncio.CancelledError:
+            return
+        if _enrichment_track_key == my_key and media_info.get("youtubeSearchStatus") == "searching":
+            print(f"  [YT] Search still running after {PROVISIONAL_NOT_FOUND_DELAY}s — provisionally flipping to not_found")
+            _set_yt_status(my_key, "not_found")
 
-    print(f"  [YT] Exhausted all {max_retries} attempts for: {artist} - {title}")
+    # Skip the watchdog if we already know the answer (cached hit or cached miss).
+    current_status = media_info.get("youtubeSearchStatus", "searching")
+    flip_task = asyncio.create_task(_provisional_flip()) if current_status == "searching" else None
+
+    try:
+        for attempt in range(1, max_retries + 1):
+            if _enrichment_track_key != my_key:
+                print(f"  [STALE] Aborting YouTube search for {artist} - {title}")
+                return
+            try:
+                result = await asyncio.to_thread(media_cache.search_youtube, artist, title)
+                if result and _enrichment_track_key == my_key:
+                    video_id = result.get("videoId", "")
+                    _profile_version += 1
+                    media_info = {
+                        **media_info,
+                        "youtubeVideoId": video_id,
+                        "youtubeTitle": result.get("videoTitle", ""),
+                        "youtubeUrl": result.get("videoUrl", ""),
+                        "youtubeThumbnailUrl": f"/media/thumbnails/{result['videoId']}.jpg",
+                        "youtubeDuration": result.get("duration", 0),
+                        "youtubeSearchStatus": "found",
+                        "_profileVersion": _profile_version,
+                    }
+                    # Backfill YouTube data to history
+                    if history_id:
+                        try:
+                            history_store.update(
+                                history_id,
+                                youtube_video_id=video_id,
+                                youtube_title=result.get("videoTitle", ""),
+                                youtube_url=result.get("videoUrl", ""),
+                                thumbnail_url=f"/media/thumbnails/{video_id}.jpg",
+                            )
+                        except Exception as e:
+                            print(f"  YT history backfill error: {e}")
+                    print(f"  YouTube: {result.get('videoTitle', '')} ({video_id})")
+                    return  # Success
+                elif result:
+                    print(f"  [STALE] Dropping YouTube results for {artist} - {title}")
+                    return
+                # result is None — search failed, retry after delay
+                if attempt < max_retries:
+                    print(f"  [YT] No result for {artist} - {title}, retrying in 5s (attempt {attempt}/{max_retries})")
+                    await asyncio.sleep(5)
+            except Exception as e:
+                print(f"  YouTube fetch error (attempt {attempt}): {e}")
+                if attempt < max_retries:
+                    await asyncio.sleep(5)
+
+        print(f"  [YT] Exhausted all {max_retries} attempts for: {artist} - {title}")
+        _set_yt_status(my_key, "not_found")
+    finally:
+        if flip_task:
+            flip_task.cancel()
 
 
 _poll_count = 0
@@ -868,6 +959,14 @@ class TrackHandler(BaseHTTPRequestHandler):
             tracks = media_cache.get_all_cached()
             self._json_response({"tracks": tracks})
 
+        elif self.path == "/yt-misses":
+            try:
+                misses = media_cache_http.list_misses(200)
+                self._json_response({"misses": misses})
+            except Exception as e:
+                print(f"  [ERR] /yt-misses failed: {e}")
+                self._json_response({"misses": []})
+
         elif self.path == "/playlists":
             self._json_response(playlist_store.list_playlists())
 
@@ -1014,6 +1113,48 @@ class TrackHandler(BaseHTTPRequestHandler):
                 self.send_response(400)
                 self.end_headers()
 
+        elif self.path == "/yt-misses":
+            body = self._read_body()
+            action = body.get("action", "")
+            if action == "delete":
+                artist = body.get("artist", "")
+                title = body.get("title", "")
+                media_cache_http.clear_miss(artist, title)
+                self._json_response({"ok": True})
+            elif action == "clear_all":
+                removed = media_cache_http.clear_all_misses()
+                self._json_response({"ok": True, "removed": removed})
+            else:
+                self.send_response(400)
+                self.end_headers()
+
+        elif self.path == "/yt-unplayable":
+            # Frontend reports that the cached videoId couldn't actually play
+            # (removed, embed-disabled, region-blocked, etc.). Purge the cache,
+            # record a miss, and flip the live broadcast to not_found if the
+            # track is still current.
+            body = self._read_body()
+            artist = (body.get("artist") or "").strip()
+            title = (body.get("title") or "").strip()
+            video_id = (body.get("videoId") or "").strip()
+            error_code = body.get("errorCode", 0)
+            if not (artist and title):
+                self.send_response(400)
+                self.end_headers()
+            else:
+                try:
+                    purged = media_cache_http.remove_track(artist, title)
+                    print(f"  [YT] Unplayable reported: {artist} - {title} (code={error_code}, purged={purged or 'nothing'})")
+                    if MAIN_LOOP and MAIN_LOOP.is_running():
+                        asyncio.run_coroutine_threadsafe(
+                            _mark_track_unplayable(artist, title, video_id),
+                            MAIN_LOOP,
+                        )
+                    self._json_response({"ok": True, "purgedVideoId": purged})
+                except Exception as e:
+                    print(f"  [ERR] /yt-unplayable failed: {e}")
+                    self._json_response({"ok": False, "error": str(e)})
+
         elif self.path == "/player-state":
             body = self._read_body()
             player_state_store.save(
@@ -1059,6 +1200,8 @@ async def extension_poll_loop():
 
 
 async def main():
+    global MAIN_LOOP
+    MAIN_LOOP = asyncio.get_running_loop()
     print("Starting VisualAudioScraper...")
     print("Frontend: http://localhost:5173  (Vite)")
     print("WebSocket: ws://localhost:8765")
