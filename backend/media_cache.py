@@ -327,15 +327,20 @@ class MediaCache:
     def purge_topic_channels(self):
         """Delete cached entries from auto-generated Topic channels (static image videos).
         Called on startup so they get re-searched with the new scoring logic.
-        Skips entries referenced by playlists (foreign key constraint)."""
-        cur = self._conn.execute(
-            "DELETE FROM tracks WHERE channel LIKE '% - Topic'"
-            " AND video_id NOT IN (SELECT video_id FROM playlist_tracks)"
-        )
-        count = cur.rowcount
+        Deletes one-by-one to skip any rows with foreign key references."""
+        rows = self._conn.execute(
+            "SELECT id, artist, title FROM tracks WHERE channel LIKE '% - Topic'"
+        ).fetchall()
+        count = 0
+        for row in rows:
+            try:
+                self._conn.execute("DELETE FROM tracks WHERE id = ?", (row["id"],))
+                count += 1
+            except Exception:
+                pass  # FK reference — leave it
         if count:
             self._conn.commit()
-            print(f"  [YT] Purged {count} Topic channel entries — will re-search with real videos")
+            print(f"  [YT] Purged {count}/{len(rows)} Topic channel entries — will re-search with real videos")
         return count
 
     def get_all_cached(self):
