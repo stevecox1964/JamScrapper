@@ -326,9 +326,11 @@ class MediaCache:
 
     def purge_topic_channels(self):
         """Delete cached entries from auto-generated Topic channels (static image videos).
-        Called on startup so they get re-searched with the new scoring logic."""
+        Called on startup so they get re-searched with the new scoring logic.
+        Skips entries referenced by playlists (foreign key constraint)."""
         cur = self._conn.execute(
             "DELETE FROM tracks WHERE channel LIKE '% - Topic'"
+            " AND video_id NOT IN (SELECT video_id FROM playlist_tracks)"
         )
         count = cur.rowcount
         if count:
