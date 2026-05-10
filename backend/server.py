@@ -7,6 +7,7 @@ import json
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 import threading
+import warnings
 import numpy as np
 import requests
 import soundcard as sc
@@ -18,6 +19,8 @@ from winrt.windows.storage.streams import Buffer, InputStreamOptions
 
 import mimetypes
 import sys
+
+warnings.filterwarnings("ignore", category=sc.SoundcardRuntimeWarning)
 
 from db import get_db, init_db
 from fingerprinter import AudioFingerprinter, load_acoustid_key
@@ -324,7 +327,9 @@ async def get_media_session_info():
 
         return best_artist, best_title, best_album, best_thumb
     except Exception as e:
-        print(f"Media session error: {e}")
+        if not getattr(get_media_session_info, "_error_logged", False):
+            print(f"Media session unavailable: {e}")
+            get_media_session_info._error_logged = True
         return None, None, None, None
 
 
