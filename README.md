@@ -43,10 +43,18 @@ The play history panel shows a live card view of recent tracks:
 
 ## Visualizer Modes
 
-- **Video** — YouTube music video streams as the full-screen background (IFrame API)
-- **Starfield** — 3D stars flying past camera with artist image cards streaking through the field (Three.js)
+**2D (canvas)**
+- **Bars** — frequency bars with artist images revealed through them
+- **Waveform** — scrolling waveform with images riding the signal
+- **Radial** — orbiting artist images around an album art core
 
-All modes render with transparent backgrounds so the YouTube video bleeds through.
+**3D (Three.js)**
+- **Tunnel** — image panels rushing toward the camera
+- **Galaxy** — album art core with artist image arm sprites
+- **Terrain** — undulating mesh with billboard images and an album art sun
+- **Starfield** — artist image cards flying through a star field
+
+All 3D modes render with `alpha: true` and no scene background so the YouTube video bleeds through.
 
 ## Tech Stack
 
@@ -70,7 +78,7 @@ All modes render with transparent backgrounds so the YouTube video bleeds throug
 ### Prerequisites
 
 - Windows 10/11
-- Python 3.11+
+- Python 3.11+ (Python 3.14 supported; WinRT media session fallback is disabled but not required)
 - Node.js 18+
 - Google Chrome (for the track detection extension)
 - `yt-dlp` installed and on PATH (for YouTube search and thumbnails)
@@ -113,7 +121,7 @@ The extension reads track info from streaming sites. Install it once:
 **Backend:**
 ```bash
 cd backend
-python -W ignore server.py
+python server.py
 ```
 Starts WebSocket on `ws://localhost:8765` and HTTP/API server on `http://localhost:8766`.
 

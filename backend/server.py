@@ -724,7 +724,7 @@ async def media_poll_loop():
         # --- Source 1: Windows Media Session API ---
         artist, title, album, thumb_b64 = await get_media_session_info()
 
-        if _poll_count <= 3 or _poll_count % 10 == 0:
+        if (_poll_count <= 3 or _poll_count % 10 == 0) and (artist or title):
             print(f"[poll #{_poll_count}] Media session: artist='{artist}' title='{title}' album='{album}'")
 
         if artist is not None and (artist or title):
@@ -734,7 +734,7 @@ async def media_poll_loop():
         # --- Source 2: Chrome window title scraper (fallback) ---
         if not detected:
             chrome_artist, chrome_title = await asyncio.to_thread(detect_from_chrome_titles)
-            if _poll_count <= 3 or _poll_count % 10 == 0:
+            if (_poll_count <= 3 or _poll_count % 10 == 0) and (chrome_artist or chrome_title):
                 print(f"[poll #{_poll_count}] Chrome titles: artist='{chrome_artist}' title='{chrome_title}'")
             if chrome_artist or chrome_title:
                 await _handle_track_detected(

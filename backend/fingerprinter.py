@@ -130,7 +130,9 @@ class AudioFingerprinter:
             return None
 
         except Exception as e:
-            print(f"Fingerprint error: {e}")
+            if not getattr(AudioFingerprinter.identify, "_error_logged", False):
+                print(f"Fingerprint error: {e}")
+                AudioFingerprinter.identify._error_logged = True
             return None
         finally:
             if tmp_path:
