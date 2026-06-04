@@ -56,6 +56,18 @@ The play history panel shows a live card view of recent tracks:
 
 All 3D modes render with `alpha: true` and no scene background so the YouTube video bleeds through.
 
+## AI Video — Synthetic Music Videos
+
+When a track has no real YouTube video — or any time you want — JamScrapper composes its own music video from the images it already fetched (album art, artist photos, YouTube thumbnail):
+
+- Each image scrolls in from the right, settles centered and **holds**, then scrolls off to the left as the next slides in
+- A blurred, color-graded full-bleed background crossfades underneath, with vignette and film grain
+- Renders on the video layer in real time via Canvas 2D — no downloads, no generation latency
+
+It activates automatically when YouTube search comes up empty (`youtubeSearchStatus: 'not_found'`), and you can force it on for any track with the **AI Video** button in the header to A/B the artist's official video against the generated one. The real video keeps playing underneath the opaque compositor, so toggling back to **Real Video** is instant.
+
+Tracks with no YouTube match are recorded in a miss cache (7-day TTL) and surfaced in the **YT Misses** admin panel, where you can clear individual entries to force a re-search. Live videos that load but can't actually play (removed, private, or embedding-disabled) flip to AI Video automatically.
+
 ## Tech Stack
 
 | Layer | Tech |
@@ -140,6 +152,7 @@ Opens at `http://localhost:5173`. Connects to backend at `localhost:8765`/`8766`
 4. Toggle song history or playlist panels from the header
 5. Switch to **Player** mode to stream playlists and history tracks with audio
 6. Click any row in **History** with a known video to launch it instantly
+7. Hit **AI Video** in the header to replace the video background with a synthetic music video composed from album art and artist images
 
 ### Optional: Audio Fingerprinting
 
@@ -180,6 +193,8 @@ frontend/
       TrackInfo.jsx           - Retractable track info card (auto-slides in/out)
       ModeSelector.jsx        - Mode picker (Video, Starfield)
       YouTubeBackground.jsx   - Video background (YouTube IFrame, live + player modes)
+      SyntheticVideo.jsx      - "AI Video" compositor (Canvas 2D scroll-in/hold/scroll-out slideshow from fetched images)
+      YtMissesPanel.jsx       - Admin panel for YouTube search misses (clear to re-search)
       SongHistory.jsx         - Live history panel with card layout and real-time updates
       PlaylistPanel.jsx       - Playlist management panel
       LibraryPanel.jsx        - Saved library + playlist playback panel (Player mode)
@@ -201,6 +216,7 @@ start.bat                - One-click launcher for backend + frontend (dev mode)
 - Playback sync (pause detection, visualizer freeze, paused UI badge)
 - Smart queue auto-fill (related tracks when queue ends)
 - Mood-based sequencing from play history
+- Expand the AI Video image pool (iTunes / Deezer / Cover Art Archive) for richer synthetic videos
 
 ## Supported Streaming Sites
 

@@ -101,6 +101,14 @@ def init_db(conn: sqlite3.Connection):
             saved_at  TEXT NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS yt_search_misses (
+            artist     TEXT NOT NULL,
+            title      TEXT NOT NULL,
+            searched_at TEXT NOT NULL,
+            attempts   INTEGER NOT NULL DEFAULT 1,
+            PRIMARY KEY (artist, title)
+        );
+
         CREATE INDEX IF NOT EXISTS idx_play_history_played_at ON play_history(played_at);
         CREATE INDEX IF NOT EXISTS idx_playlist_tracks_playlist ON playlist_tracks(playlist_id, position);
         CREATE INDEX IF NOT EXISTS idx_downloads_state ON downloads(state);

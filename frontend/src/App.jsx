@@ -8,7 +8,9 @@ import SongHistory from './components/SongHistory';
 import PlaylistPanel from './components/PlaylistPanel';
 import PlayerControls from './components/PlayerControls';
 import LibraryPanel from './components/LibraryPanel';
+import YtMissesPanel from './components/YtMissesPanel';
 import YouTubeBackground from './components/YouTubeBackground';
+import SyntheticVideo from './components/SyntheticVideo';
 import MediaTextureManager from './utils/mediaTextureManager';
 import { WS_URL, API_BASE } from './config';
 import './App.css';
@@ -20,6 +22,8 @@ export default function App() {
   const [mode, setMode] = useState('video');
   const [showHistory, setShowHistory] = useState(true);
   const [showPlaylist, setShowPlaylist] = useState(false);
+  const [showMisses, setShowMisses] = useState(false);
+  const [forceSynthetic, setForceSynthetic] = useState(false);
   const { dataRef, connected, media, historyVersion, refreshMedia } = useAudioWebSocket(WS_URL);
   const mediaManagerRef = useRef(new MediaTextureManager());
   const playerControlsRef = useRef(null);
@@ -89,6 +93,10 @@ export default function App() {
     ? playerQueue[(playerIndex + 1) % playerQueue.length]
     : null;
   const isPlayer = appMode === 'player';
+  // Synthetic compositor runs when no real video was found, OR when the user
+  // forces it on to compare the artist's video against the generated one.
+  const hasRealVideo = Boolean(media?.youtubeVideoId);
+  const showSynthetic = appMode === 'live' && (media?.youtubeSearchStatus === 'not_found' || forceSynthetic);
 
   const playTrack = (track) => {
     if (!track?.videoId) return;
@@ -190,6 +198,18 @@ export default function App() {
         <button className="debug-toggle" onClick={() => setShowPlaylist(p => !p)}>
           {showPlaylist ? 'Hide' : 'Show'} Playlists
         </button>
+        <button className="debug-toggle" onClick={() => setShowMisses(m => !m)}>
+          {showMisses ? 'Hide' : 'Show'} YT Misses
+        </button>
+        {appMode === 'live' && (
+          <button
+            className={`debug-toggle${forceSynthetic ? ' active' : ''}`}
+            onClick={() => setForceSynthetic(s => !s)}
+            title="Switch between the artist's YouTube video and an AI-generated music video"
+          >
+            {forceSynthetic ? 'Real Video' : 'AI Video'}
+          </button>
+        )}
       </div>
 
       <YouTubeBackground
@@ -199,8 +219,39 @@ export default function App() {
         nextPlayerTrack={nextPlayerTrack}
         onTrackEnded={nextTrack}
         onPlayerState={setPlayerState}
+        onLiveVideoError={(badId, code) => {
+          if (!media?.artist || !media?.title) return;
+          fetch(`${API_BASE}/yt-unplayable`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              artist: media.artist,
+              title: media.title,
+              videoId: badId,
+              errorCode: code,
+            }),
+          }).catch(() => {});
+        }}
         controlsRef={playerControlsRef}
       />
+
+      {showSynthetic && (
+        <SyntheticVideo dataRef={dataRef} media={media} />
+      )}
+
+      {showSynthetic && (
+        <div className="synthetic-banner" role="status">
+          <span className="synthetic-banner-dot">◌</span>
+          <span className="synthetic-banner-text">
+            <strong>{forceSynthetic && hasRealVideo ? 'AI Video Mode' : 'Image-Only Mode'}</strong>
+            <span className="synthetic-banner-sub">
+              {forceSynthetic && hasRealVideo
+                ? 'Generated music video — composed from album art & artist images.'
+                : 'No YouTube video for this track — visuals composed from album art & artist images.'}
+            </span>
+          </span>
+        </div>
+      )}
 
       {is3D ? (
         <ThreeVisualizer mode={mode} dataRef={dataRef} mediaManager={mediaManagerRef} />
@@ -217,6 +268,7 @@ export default function App() {
         onPlayFromLibrary={playFromHistory}
         onQueuePlaylist={queuePlaylist}
       />
+      <YtMissesPanel visible={showMisses} />
       <PlayerControls
         visible={isPlayer}
         currentTrack={currentPlayerTrack}

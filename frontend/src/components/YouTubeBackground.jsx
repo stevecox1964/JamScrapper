@@ -57,6 +57,10 @@ function isPlayerAlive(player) {
   }
 }
 
+// YouTube IFrame error codes we treat as "the video can't actually play":
+// 100 = removed/private, 101 & 150 = embedding disabled by uploader or owner.
+const UNPLAYABLE_ERROR_CODES = new Set([100, 101, 150]);
+
 export default function YouTubeBackground({
   appMode = 'live',
   videoId,
@@ -64,6 +68,7 @@ export default function YouTubeBackground({
   nextPlayerTrack,
   onTrackEnded,
   onPlayerState,
+  onLiveVideoError,
   controlsRef,
 }) {
   const liveTargetRef = useRef(null);
@@ -163,10 +168,18 @@ export default function YouTubeBackground({
               e.target.playVideo();
             }
           },
+          onError: (e) => {
+            const code = Number(e?.data || 0);
+            if (UNPLAYABLE_ERROR_CODES.has(code)) {
+              const badId = liveIdRef.current;
+              console.warn(`[YT] Live video ${badId} unplayable (error ${code}) — flipping to synthetic`);
+              onLiveVideoError?.(badId, code);
+            }
+          },
         },
       });
     });
-  }, [videoId, isPlayerMode]);
+  }, [videoId, isPlayerMode, onLiveVideoError]);
 
   // Pause/resume live player when switching modes
   useEffect(() => {

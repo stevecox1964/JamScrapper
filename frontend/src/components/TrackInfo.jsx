@@ -125,6 +125,21 @@ export default function TrackInfo({ media, hasVideo }) {
           {media.detectionSource === 'fingerprint' && (
             <span className="detection-badge">Identified</span>
           )}
+          {media.youtubeSearchStatus && (
+            <span
+              className={`yt-status-badge yt-status-${media.youtubeSearchStatus}`}
+              title={
+                media.youtubeSearchStatus === 'found' ? 'YouTube video found — live video mode' :
+                media.youtubeSearchStatus === 'searching' ? 'Searching YouTube for a matching video' :
+                media.youtubeSearchStatus === 'not_found' ? 'No YouTube match — synthetic video mode' :
+                ''
+              }
+            >
+              {media.youtubeSearchStatus === 'found' && '● YT'}
+              {media.youtubeSearchStatus === 'searching' && '… Searching'}
+              {media.youtubeSearchStatus === 'not_found' && '◌ Synthetic'}
+            </span>
+          )}
           {media.youtubeVideoId && (
             <div className="track-share">
               <a
