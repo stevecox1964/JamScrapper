@@ -7,6 +7,7 @@ import json
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 import threading
+from urllib.parse import parse_qs, urlparse
 import warnings
 import numpy as np
 import requests
@@ -27,9 +28,11 @@ from fingerprinter import AudioFingerprinter, load_acoustid_key
 from artist_store import ArtistStore, enrich_artist_profile, fetch_album_from_musicbrainz
 from history_store import HistoryStore
 from media_cache import MediaCache
+from video_downloader import VideoDownloader
 from playlist_store import PlaylistStore
 from choreography_store import ChoreographyStore
 from player_state_store import PlayerStateStore
+from radio import RadioDJ
 
 SAMPLE_RATE = 44100
 BLOCK_SIZE = 2048
@@ -99,6 +102,7 @@ media_info = {
     "youtubeUrl": "",
     "youtubeThumbnailUrl": "",
     "youtubeDuration": 0,
+    "localVideoUrl": "",
 }
 _last_track_key = ""
 _last_track_seen_at = 0.0
@@ -129,11 +133,15 @@ media_cache = MediaCache(_db_conn)
 media_cache.purge_topic_channels()  # Clear static-image videos so they re-search as real music videos
 playlist_store = PlaylistStore(_db_conn)
 choreography_store = ChoreographyStore(_db_conn)
+# Video downloader gets its OWN connection: download_video() runs inside
+# asyncio.to_thread() worker threads, never on the main asyncio thread.
+video_downloader = VideoDownloader(get_db())
 player_state_store = PlayerStateStore(_db_conn)
 
 # HTTP-thread stores — read-only operations from the HTTP handler use these
 history_store_http = HistoryStore(_http_db_conn)
 media_cache_http = MediaCache(_http_db_conn)
+radio_dj = RadioDJ(_http_db_conn)
 
 
 # Known streaming services and their tab title patterns
@@ -475,7 +483,15 @@ async def _handle_track_detected(artist, title, album, thumb_b64, source):
         "youtubeThumbnailUrl": f"/media/thumbnails/{cached_vid}.jpg" if cached_vid else "",
         "youtubeDuration": cached_yt.get("duration", 0) if cached_yt else 0,
         "youtubeSearchStatus": initial_yt_status,
+        "localVideoUrl": _local_video_url(cached_vid) if cached_vid and video_downloader.is_downloaded(cached_vid) else "",
     }
+
+    # Make sure we have the video file saved locally (skips if already on disk)
+    if cached_vid:
+        asyncio.create_task(_ensure_video_downloaded(
+            artist, title, cached_vid,
+            cached_yt.get("videoTitle", "") if cached_yt else "",
+        ))
 
     # Fire off all enrichment as non-blocking background tasks
     asyncio.create_task(_enrich_track(artist, title, album, thumb_b64, _current_history_id))
@@ -585,6 +601,60 @@ PROVISIONAL_NOT_FOUND_DELAY = 12  # seconds — flip status so synthetic can sta
 MAIN_LOOP = None
 
 
+# ---------- Local video download (save every found video unless we have it) ----------
+
+_downloads_in_flight = set()
+_download_semaphore = asyncio.Semaphore(2)  # at most 2 concurrent yt-dlp downloads
+
+
+def _local_video_url(video_id):
+    return f"/media/videos/{video_id}.mp4"
+
+
+async def _ensure_video_downloaded(artist, title, video_id, video_title=""):
+    """Save the YouTube video locally unless we already have it. When the file
+    is ready and the track is still current, publish localVideoUrl so the
+    frontend can play the saved copy (with FX) if the embed doesn't show."""
+    global media_info, _profile_version
+    if not video_id:
+        return
+    my_key = _normalize_key(artist, title)
+
+    def _publish():
+        global media_info, _profile_version
+        if _enrichment_track_key != my_key:
+            return
+        if media_info.get("localVideoUrl"):
+            return
+        _profile_version += 1
+        media_info = {
+            **media_info,
+            "localVideoUrl": _local_video_url(video_id),
+            "_profileVersion": _profile_version,
+        }
+        print(f"  [DL] Local video ready: {artist} - {title} ({video_id})")
+
+    if video_downloader.is_downloaded(video_id):
+        _publish()
+        return
+    if video_id in _downloads_in_flight:
+        return
+    _downloads_in_flight.add(video_id)
+    try:
+        async with _download_semaphore:
+            print(f"  [DL] Saving video: {artist} - {title} ({video_id})")
+            status = await asyncio.to_thread(
+                video_downloader.download_video, video_id, artist, title, video_title
+            )
+        if status and status.get("state") == "completed":
+            _publish()
+        else:
+            err = (status or {}).get("error") if status else "yt-dlp not available"
+            print(f"  [DL] FAILED: {artist} - {title} ({video_id}): {err}")
+    finally:
+        _downloads_in_flight.discard(video_id)
+
+
 async def _mark_track_unplayable(artist, title, video_id):
     """Flip the currently-playing track to not_found if it matches.
     Called from HTTP thread via run_coroutine_threadsafe when the YouTube
@@ -602,6 +672,12 @@ async def _mark_track_unplayable(artist, title, video_id):
     # was reported — be defensive and flip anyway).
     if video_id and cur_vid and cur_vid != video_id:
         return
+    # Embed-blocked videos are still downloadable — if we have (or can get) the
+    # file, the frontend plays the saved copy instead of the image slideshow.
+    bad_vid = video_id or cur_vid
+    local_url = media_info.get("localVideoUrl", "")
+    if not local_url and bad_vid and video_downloader.is_downloaded(bad_vid):
+        local_url = _local_video_url(bad_vid)
     _profile_version += 1
     media_info = {
         **media_info,
@@ -611,9 +687,12 @@ async def _mark_track_unplayable(artist, title, video_id):
         "youtubeThumbnailUrl": "",
         "youtubeDuration": 0,
         "youtubeSearchStatus": "not_found",
+        "localVideoUrl": local_url,
         "_profileVersion": _profile_version,
     }
     print(f"  [YT] Marked unplayable: {artist} - {title} (video {video_id or 'unknown'})")
+    if not local_url and bad_vid:
+        asyncio.create_task(_ensure_video_downloaded(artist, title, bad_vid))
 
 
 def _set_yt_status(track_key, status):
@@ -674,8 +753,13 @@ async def _fetch_youtube_data(artist, title, history_id=None, max_retries=2):
                         "youtubeThumbnailUrl": f"/media/thumbnails/{result['videoId']}.jpg",
                         "youtubeDuration": result.get("duration", 0),
                         "youtubeSearchStatus": "found",
+                        "localVideoUrl": _local_video_url(video_id) if video_downloader.is_downloaded(video_id) else "",
                         "_profileVersion": _profile_version,
                     }
+                    # Save the video file in the background (skips if on disk)
+                    asyncio.create_task(_ensure_video_downloaded(
+                        artist, title, video_id, result.get("videoTitle", "")
+                    ))
                     # Backfill YouTube data to history
                     if history_id:
                         try:
@@ -960,6 +1044,28 @@ class TrackHandler(BaseHTTPRequestHandler):
         elif self.path == "/now-playing":
             self._json_response({"media": media_info})
 
+        elif self.path.startswith("/radio/next"):
+            query = parse_qs(urlparse(self.path).query)
+            artist = (query.get("artist") or [""])[0]
+            title = (query.get("title") or [""])[0]
+            if artist or title:
+                radio_dj.seed(artist, title)
+            try:
+                track, error = radio_dj.next_track()
+            except Exception as e:
+                print(f"  [ERR] /radio/next failed: {e}")
+                track, error = None, str(e)
+            if track:
+                print(f"  [RADIO] {'WILD ' if track['wildcard'] else ''}{track['artist']} - {track['title']} "
+                      f"(mood: {', '.join(track['mood']) or 'none'})")
+            else:
+                print(f"  [RADIO] no pick: {error}")
+            self._json_response({"track": track, "error": error})
+
+        elif self.path == "/radio/reset":
+            radio_dj.reset()
+            self._json_response({"ok": True})
+
         elif self.path == "/library":
             tracks = media_cache.get_all_cached()
             self._json_response({"tracks": tracks})
@@ -1004,6 +1110,9 @@ class TrackHandler(BaseHTTPRequestHandler):
             relative = self.path[len("/media/"):]
             file_path = Path(__file__).parent / "data" / "media_cache" / relative
             if file_path.exists() and file_path.is_file():
+                if file_path.suffix == ".mp4":
+                    self._serve_video(file_path)
+                    return
                 ct = "image/jpeg" if file_path.suffix == ".jpg" else "application/octet-stream"
                 self.send_response(200)
                 self.send_header("Content-Type", ct)
@@ -1016,6 +1125,62 @@ class TrackHandler(BaseHTTPRequestHandler):
                 self.end_headers()
         else:
             self._serve_static()
+
+    # Cap each video response so the single-threaded HTTP server never blocks
+    # on one long streaming socket — the browser just issues follow-up ranges.
+    MAX_VIDEO_CHUNK = 4 * 1024 * 1024
+
+    def _serve_video(self, file_path):
+        """Serve an mp4 with byte-range support for <video> playback."""
+        try:
+            size = file_path.stat().st_size
+            range_header = self.headers.get("Range", "")
+            start, end = 0, size - 1
+            if range_header.startswith("bytes="):
+                spec = range_header[6:].split(",")[0].strip()
+                s, _, e = spec.partition("-")
+                try:
+                    if s:
+                        start = int(s)
+                        if e:
+                            end = min(int(e), size - 1)
+                    elif e:  # suffix range: last N bytes
+                        start = max(0, size - int(e))
+                except ValueError:
+                    start, end = 0, size - 1
+            if start >= size:
+                self.send_response(416)
+                self.send_header("Content-Range", f"bytes */{size}")
+                self.end_headers()
+                return
+            end = min(end, start + self.MAX_VIDEO_CHUNK - 1)
+            length = end - start + 1
+            partial = bool(range_header)
+            self.send_response(206 if partial else 200)
+            self.send_header("Content-Type", "video/mp4")
+            self.send_header("Accept-Ranges", "bytes")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Cache-Control", "public, max-age=86400")
+            if partial:
+                self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
+                self.send_header("Content-Length", str(length))
+            else:
+                self.send_header("Content-Length", str(size))
+            self.end_headers()
+            with open(file_path, "rb") as f:
+                f.seek(start)
+                if partial:
+                    self.wfile.write(f.read(length))
+                else:
+                    remaining = size
+                    while remaining > 0:
+                        chunk = f.read(min(1024 * 1024, remaining))
+                        if not chunk:
+                            break
+                        self.wfile.write(chunk)
+                        remaining -= len(chunk)
+        except (ConnectionError, BrokenPipeError):
+            pass  # browser aborted the request (seek, track change) — normal
 
     def _serve_static(self):
         """Serve built frontend files (SPA with index.html fallback)."""
@@ -1063,6 +1228,38 @@ class TrackHandler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
+
+        elif self.path == "/radio/finished":
+            body = self._read_body()
+            try:
+                radio_dj.finished(
+                    (body.get("videoId") or "").strip(),
+                    (body.get("artist") or "").strip(),
+                    (body.get("title") or "").strip(),
+                    float(body.get("playedSeconds") or 0.0),
+                )
+                print(f"  [RADIO] finished: {body.get('artist')} - {body.get('title')}")
+            except Exception as e:
+                print(f"  [ERR] /radio/finished failed: {e}")
+            self._json_response({"ok": True})
+
+        elif self.path == "/radio/skip":
+            body = self._read_body()
+            artist = (body.get("artist") or "").strip()
+            title = (body.get("title") or "").strip()
+            video_id = (body.get("videoId") or "").strip()
+            played = float(body.get("playedSeconds") or 0.0)
+            try:
+                strength, genres = radio_dj.skip(artist, title, video_id, played)
+            except Exception as e:
+                print(f"  [ERR] /radio/skip failed: {e}")
+                strength, genres = 0.0, []
+            if strength > 0:
+                print(f"  [RADIO] skip after {played:.0f}s ({strength:.0%} weight): "
+                      f"{artist} - {title} [{', '.join(genres[:4]) or 'no genres'}]")
+            else:
+                print(f"  [RADIO] skip after {played:.0f}s — mostly heard, ignored: {artist} - {title}")
+            self._json_response({"strength": strength, "genres": genres})
 
         elif self.path == "/choreography":
             body = self._read_body()

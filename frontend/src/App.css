@@ -161,6 +161,30 @@ body {
   pointer-events: none;
 }
 
+/* Saved-video MTV compositor: real video full-bleed + FX canvas on top */
+.local-video-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background: #000;
+}
+
+.local-video-layer video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.local-video-fx {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
 /* Outer wrapper that React controls — persists even after YT replaces the inner div */
 .youtube-bg .yt-layer {
   position: absolute;
@@ -461,7 +485,7 @@ body {
   border: 1px solid rgba(255, 255, 255, 0.15);
   border-radius: 4px;
   padding: 2px 8px;
-  font-size: 11px;
+  font-size: 13px;
   cursor: pointer;
 }
 
@@ -941,13 +965,14 @@ body {
 
 
 /* Player controls */
+/* The slide-out track card owns the bottom-left (up to ~530px wide), so the
+   player bar is right-aligned and capped to whatever is left over. */
 .player-controls {
   position: fixed;
-  left: 50%;
-  transform: translateX(-50%);
+  right: 16px;
   bottom: 16px;
   z-index: 40;
-  width: min(920px, 94vw);
+  width: min(920px, calc(100vw - 570px));
   display: grid;
   grid-template-columns: 2fr 1fr 2fr 1fr;
   gap: 10px;
@@ -965,7 +990,7 @@ body {
 
 .player-title {
   color: #fff;
-  font-size: 12px;
+  font-size: 15px;
   font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
@@ -973,8 +998,15 @@ body {
 }
 
 .player-artist {
-  color: #888;
-  font-size: 10px;
+  color: #aaa;
+  font-size: 13px;
+}
+
+.player-track-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
 }
 
 .player-buttons {
@@ -990,7 +1022,24 @@ body {
   border-radius: 8px;
   padding: 6px 10px;
   cursor: pointer;
-  font-size: 10px;
+  font-size: 13px;
+}
+
+/* Lives in the wide track column, not the cramped button column. */
+.player-copy-btn {
+  border: 1px solid #444;
+  background: transparent;
+  color: #ddd;
+  border-radius: 8px;
+  padding: 4px 10px;
+  cursor: pointer;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.player-copy-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 .player-btn-main {
@@ -1010,8 +1059,8 @@ body {
 }
 
 .player-time {
-  color: #777;
-  font-size: 10px;
+  color: #999;
+  font-size: 12px;
   font-family: 'Consolas', 'Fira Code', monospace;
 }
 
@@ -1019,13 +1068,13 @@ body {
   display: flex;
   align-items: center;
   gap: 6px;
-  color: #999;
-  font-size: 10px;
+  color: #bbb;
+  font-size: 12px;
 }
 
 .player-queue-pos {
-  color: #555;
-  font-size: 9px;
+  color: #888;
+  font-size: 12px;
   font-family: 'Consolas', 'Fira Code', monospace;
 }
 
@@ -1046,16 +1095,16 @@ body {
 }
 
 .player-up-next-label {
-  color: #666;
-  font-size: 9px;
+  color: #888;
+  font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
   flex-shrink: 0;
 }
 
 .player-up-next-track {
-  color: #aaa;
-  font-size: 11px;
+  color: #ccc;
+  font-size: 13px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1308,4 +1357,26 @@ body {
   color: #666;
   font-style: italic;
   padding: 6px 0;
+}
+
+/* Manual fallback when the clipboard API is blocked — select and copy by hand. */
+.player-copy-fallback {
+  width: 100%;
+  margin-top: 6px;
+  padding: 6px 8px;
+  font-size: 13px;
+  color: #ddd;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid #333;
+  border-radius: 6px;
+}
+
+/* Too narrow to sit beside the card — stack the player bar above it instead. */
+@media (max-width: 1180px) {
+  .player-controls {
+    right: 50%;
+    transform: translateX(50%);
+    bottom: 150px;
+    width: 94vw;
+  }
 }

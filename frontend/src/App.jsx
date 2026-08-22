@@ -9,8 +9,10 @@ import PlaylistPanel from './components/PlaylistPanel';
 import PlayerControls from './components/PlayerControls';
 import LibraryPanel from './components/LibraryPanel';
 import YtMissesPanel from './components/YtMissesPanel';
-import YouTubeBackground from './components/YouTubeBackground';
+import YouTubeBackground, { UNPLAYABLE_ERROR_CODES } from './components/YouTubeBackground';
 import SyntheticVideo from './components/SyntheticVideo';
+import LocalVideoFx from './components/LocalVideoFx';
+import LocalVideoPlayer from './components/LocalVideoPlayer';
 import MediaTextureManager from './utils/mediaTextureManager';
 import { WS_URL, API_BASE } from './config';
 import './App.css';
@@ -24,9 +26,19 @@ export default function App() {
   const [showPlaylist, setShowPlaylist] = useState(false);
   const [showMisses, setShowMisses] = useState(false);
   const [forceSynthetic, setForceSynthetic] = useState(false);
+  const [radioOn, setRadioOn] = useState(false);
+  const radioOnRef = useRef(false);
+  const radioBusyRef = useRef(false);
+  // Stops a run of dead videos from spinning the player forever.
+  const deadVideoStreakRef = useRef(0);
   const { dataRef, connected, media, historyVersion, refreshMedia } = useAudioWebSocket(WS_URL);
   const mediaManagerRef = useRef(new MediaTextureManager());
   const playerControlsRef = useRef(null);
+  const localControlsRef = useRef(null);
+  // Set when YouTube refuses to embed a track we have on disk — the local file
+  // takes over playback and PlayerControls is pointed at it instead.
+  const [localFallbackId, setLocalFallbackId] = useState('');
+  const ytErrorCodeRef = useRef(0);
   const playerQueueRef = useRef([]);
 
   const [playerQueue, setPlayerQueue] = useState([]);
@@ -51,6 +63,16 @@ export default function App() {
     playerQueueRef.current = playerQueue;
   }, [playerQueue]);
 
+  useEffect(() => {
+    radioOnRef.current = radioOn;
+  }, [radioOn]);
+
+  // Every new track starts fresh on YouTube; the local file is only a rescue.
+  useEffect(() => {
+    setLocalFallbackId('');
+    ytErrorCodeRef.current = 0;
+  }, [playerIndex, playerQueue]);
+
   // Restore player state from backend on mount
   useEffect(() => {
     fetch(`${API_BASE}/player-state`)
@@ -59,7 +81,7 @@ export default function App() {
         if (state?.queue?.length) {
           setPlayerQueue(state.queue);
           setPlayerIndex(state.queueIndex || 0);
-          setPlayerState(prev => ({ ...prev, volume: state.volume ?? 1 }));
+          // Volume is deliberately NOT restored: playback always starts at full.
           playerStateRestoredRef.current = true;
         }
       })
@@ -93,10 +115,17 @@ export default function App() {
     ? playerQueue[(playerIndex + 1) % playerQueue.length]
     : null;
   const isPlayer = appMode === 'player';
-  // Synthetic compositor runs when no real video was found, OR when the user
-  // forces it on to compare the artist's video against the generated one.
+  // Fallback visuals when the embedded video can't show (or the user forces
+  // them on). Priority: saved local video + MTV FX > image slideshow.
   const hasRealVideo = Boolean(media?.youtubeVideoId);
-  const showSynthetic = appMode === 'live' && (media?.youtubeSearchStatus === 'not_found' || forceSynthetic);
+  const hasLocalVideo = Boolean(media?.localVideoUrl);
+  const showFallback = appMode === 'live' && (media?.youtubeSearchStatus === 'not_found' || forceSynthetic);
+  const showLocalVideo = showFallback && hasLocalVideo;
+  const showSynthetic = showFallback && !hasLocalVideo;
+
+  const activeControls = () => (
+    localFallbackId ? localControlsRef.current : playerControlsRef.current
+  );
 
   const playTrack = (track) => {
     if (!track?.videoId) return;
@@ -142,6 +171,136 @@ export default function App() {
     setAppMode('player');
   };
 
+  // Radio: ask the backend for a genre-drifted random pick, append it, play it.
+  const appendRadioTrack = async (seed) => {
+    if (radioBusyRef.current) return false;
+    radioBusyRef.current = true;
+    try {
+      const params = new URLSearchParams();
+      if (seed?.artist) params.set('artist', seed.artist);
+      if (seed?.title) params.set('title', seed.title);
+      const res = await fetch(`${API_BASE}/radio/next?${params.toString()}`);
+      const data = await res.json();
+      const track = data?.track;
+      if (!track?.videoId) {
+        console.warn('[radio] no track returned:', data?.error || 'unknown reason');
+        return false;
+      }
+      const queue = playerQueueRef.current;
+      setPlayerQueue([...queue, track]);
+      setPlayerIndex(queue.length);
+      return true;
+    } catch (e) {
+      console.warn('[radio] request failed:', e);
+      return false;
+    } finally {
+      radioBusyRef.current = false;
+    }
+  };
+
+  const toggleRadio = async () => {
+    if (radioOn) {
+      setRadioOn(false);
+      return;
+    }
+    const seed = isPlayer
+      ? currentPlayerTrack
+      : (media?.artist ? { artist: media.artist, title: media.title } : null);
+    const ok = await appendRadioTrack(seed);
+    if (!ok) return;
+    setRadioOn(true);
+    setAppMode('player');
+  };
+
+  // A song we let finish is the closest thing to a thumbs-up, so it just feeds
+  // the mood. A skip is the opposite signal and gets reported before we move on.
+  const atEndOfQueue = () => playerIndex >= playerQueueRef.current.length - 1;
+
+  const reportRadio = (path, track, playedSeconds) => {
+    if (!track?.videoId) return;
+    fetch(`${API_BASE}/radio/${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        artist: track.artist || '',
+        title: track.title || '',
+        videoId: track.videoId,
+        playedSeconds: playedSeconds || 0,
+      }),
+    }).catch(() => {});
+  };
+
+  const handleTrackEnded = () => {
+    deadVideoStreakRef.current = 0;
+    if (radioOnRef.current) {
+      reportRadio('finished', currentPlayerTrack, playerState.duration);
+    }
+    if (radioOnRef.current && atEndOfQueue()) {
+      appendRadioTrack(null);
+      return;
+    }
+    nextTrack();
+  };
+
+  // A video that refuses to play is not a song you disliked. Move on WITHOUT
+  // reporting a skip — recording one would teach Rando to avoid a track you
+  // never actually heard.
+  const skipDeadVideo = () => {
+    deadVideoStreakRef.current += 1;
+    if (deadVideoStreakRef.current >= 5) {
+      console.error('[player] 5 videos in a row failed to play — stopping so this cannot spin.');
+      setRadioOn(false);
+      return;
+    }
+    if (radioOnRef.current && atEndOfQueue()) appendRadioTrack(null);
+    else nextTrack();
+  };
+
+  const handlePlayerVideoError = (badId, code) => {
+    if (!badId) {
+      skipDeadVideo();
+      return;
+    }
+    // We may have downloaded this one already — play our copy rather than
+    // losing the song. LocalVideoPlayer tells us if there is no file.
+    console.warn(`[player] YouTube refused ${badId} (error ${code}) — trying the local file`);
+    ytErrorCodeRef.current = code;
+    setLocalFallbackId(badId);
+  };
+
+  // No local copy either — now the song is genuinely gone.
+  const handleLocalUnavailable = (badId) => {
+    const track = currentPlayerTrack;
+    const code = ytErrorCodeRef.current;
+    console.warn(`[player] no local file for ${badId} either — skipping`);
+    setLocalFallbackId('');
+    // Only purge it from the library if YouTube said it is permanently dead.
+    // A transient playback error should not cost you the track.
+    if (UNPLAYABLE_ERROR_CODES.has(code) && track?.artist && track?.title) {
+      fetch(`${API_BASE}/yt-unplayable`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          artist: track.artist,
+          title: track.title,
+          videoId: badId,
+          errorCode: code,
+        }),
+      }).catch(() => {});
+    }
+    skipDeadVideo();
+  };
+
+  const handleNext = () => {
+    if (!radioOnRef.current || !atEndOfQueue()) {
+      nextTrack();
+      return;
+    }
+    deadVideoStreakRef.current = 0;
+    reportRadio('skip', currentPlayerTrack, playerState.currentTime);
+    appendRadioTrack(null);
+  };
+
   const nextTrack = () => {
     const q = playerQueueRef.current;
     setPlayerIndex((i) => {
@@ -168,6 +327,7 @@ export default function App() {
       dominantColors: [],
       genres: [],
       detectionSource: 'player',
+      youtubeVideoId: currentPlayerTrack.videoId || '',
     }
     : media;
 
@@ -192,6 +352,13 @@ export default function App() {
         {!connected && (
           <div className="status disconnected">Connecting...</div>
         )}
+        <button
+          className={`debug-toggle${radioOn ? ' active' : ''}`}
+          onClick={toggleRadio}
+          title="Play a random song, then keep picking songs that drift in and out of the same genre"
+        >
+          Rando
+        </button>
         <button className="debug-toggle" onClick={() => setShowHistory(h => !h)}>
           {showHistory ? 'Hide' : 'Show'} History
         </button>
@@ -217,8 +384,9 @@ export default function App() {
         videoId={media?.youtubeVideoId}
         playerTrack={currentPlayerTrack}
         nextPlayerTrack={nextPlayerTrack}
-        onTrackEnded={nextTrack}
-        onPlayerState={setPlayerState}
+        onTrackEnded={handleTrackEnded}
+        onPlayerState={(st) => { if (!localFallbackId) setPlayerState(st); }}
+        onPlayerVideoError={handlePlayerVideoError}
         onLiveVideoError={(badId, code) => {
           if (!media?.artist || !media?.title) return;
           fetch(`${API_BASE}/yt-unplayable`, {
@@ -235,19 +403,38 @@ export default function App() {
         controlsRef={playerControlsRef}
       />
 
+      <LocalVideoPlayer
+        videoId={isPlayer ? localFallbackId : ''}
+        volume={playerState.volume}
+        controlsRef={localControlsRef}
+        onState={setPlayerState}
+        onEnded={handleTrackEnded}
+        onUnavailable={handleLocalUnavailable}
+      />
+
+      {showLocalVideo && (
+        <LocalVideoFx media={media} />
+      )}
+
       {showSynthetic && (
         <SyntheticVideo dataRef={dataRef} media={media} />
       )}
 
-      {showSynthetic && (
+      {showFallback && (
         <div className="synthetic-banner" role="status">
           <span className="synthetic-banner-dot">◌</span>
           <span className="synthetic-banner-text">
-            <strong>{forceSynthetic && hasRealVideo ? 'AI Video Mode' : 'Image-Only Mode'}</strong>
+            <strong>
+              {showLocalVideo
+                ? 'MTV Mode'
+                : forceSynthetic && hasRealVideo ? 'AI Video Mode' : 'Image-Only Mode'}
+            </strong>
             <span className="synthetic-banner-sub">
-              {forceSynthetic && hasRealVideo
-                ? 'Generated music video — composed from album art & artist images.'
-                : 'No YouTube video for this track — visuals composed from album art & artist images.'}
+              {showLocalVideo
+                ? 'Embed unavailable — playing the saved video with FX.'
+                : forceSynthetic && hasRealVideo
+                  ? 'Generated music video — composed from album art & artist images.'
+                  : 'No YouTube video for this track — visuals composed from album art & artist images.'}
             </span>
           </span>
         </div>
@@ -280,16 +467,16 @@ export default function App() {
         duration={playerState.duration}
         volume={playerState.volume}
         onPlayPause={() => {
-          const controls = playerControlsRef.current;
+          const controls = activeControls();
           if (!controls) return;
           const state = controls.getState?.();
           if (state?.playing) controls.pause?.();
           else controls.play?.();
         }}
         onPrev={prevTrack}
-        onNext={nextTrack}
-        onSeek={(t) => playerControlsRef.current?.seek?.(t)}
-        onVolume={(v) => playerControlsRef.current?.setVolume?.(v)}
+        onNext={handleNext}
+        onSeek={(t) => activeControls()?.seek?.(t)}
+        onVolume={(v) => activeControls()?.setVolume?.(v)}
       />
     </div>
   );

@@ -14,8 +14,6 @@ export default function PlayerControls({
   onSeek,
   onVolume,
 }) {
-  if (!visible) return null;
-
   const safeDuration = Number.isFinite(duration) && duration > 0 ? duration : 0;
   const safeTime = Number.isFinite(currentTime) ? currentTime : 0;
   const progress = safeDuration > 0 ? Math.min(100, (safeTime / safeDuration) * 100) : 0;
@@ -32,15 +30,19 @@ export default function PlayerControls({
       <div className="player-track">
         <div className="player-title">{currentTrack?.title || currentTrack?.videoTitle || 'No track selected'}</div>
         <div className="player-artist">{currentTrack?.artist || ''}</div>
-        {queueLength > 0 && <div className="player-queue-pos">{queuePosition + 1} / {queueLength}</div>}
+        {queueLength > 0 && (
+          <div className="player-track-meta">
+            <span className="player-queue-pos">{queuePosition + 1} / {queueLength}</span>
+          </div>
+        )}
       </div>
 
       <div className="player-buttons">
-        <button className="player-btn" onClick={onPrev} title="Previous">Prev</button>
+        <button className="player-btn" onClick={onPrev} title="Play the last song again">Prev</button>
         <button className="player-btn player-btn-main" onClick={onPlayPause} title="Play/Pause">
           {isPlaying ? 'Pause' : 'Play'}
         </button>
-        <button className="player-btn" onClick={onNext} title="Next">Next</button>
+        <button className="player-btn" onClick={onNext} title="Not this one right now — steers the mood away from it">Next</button>
       </div>
 
       <div className="player-seek">

@@ -57,9 +57,17 @@ function isPlayerAlive(player) {
   }
 }
 
+function applyVolume(player, volume) {
+  if (!player || !isPlayerAlive(player)) return;
+  try {
+    player.unMute?.();
+    player.setVolume?.(Math.max(0, Math.min(100, Math.round((Number(volume) || 0) * 100))));
+  } catch (_) {}
+}
+
 // YouTube IFrame error codes we treat as "the video can't actually play":
 // 100 = removed/private, 101 & 150 = embedding disabled by uploader or owner.
-const UNPLAYABLE_ERROR_CODES = new Set([100, 101, 150]);
+export const UNPLAYABLE_ERROR_CODES = new Set([100, 101, 150]);
 
 export default function YouTubeBackground({
   appMode = 'live',
@@ -69,6 +77,7 @@ export default function YouTubeBackground({
   onTrackEnded,
   onPlayerState,
   onLiveVideoError,
+  onPlayerVideoError,
   controlsRef,
 }) {
   const liveTargetRef = useRef(null);
@@ -78,6 +87,9 @@ export default function YouTubeBackground({
   const liveIdRef = useRef('');
   const playerIdRef = useRef('');
   const playerTimerRef = useRef(null);
+  // Desired playback volume (0-1). The end-of-track fade lowers the YouTube
+  // player's volume, so we keep the intended level here and restore it.
+  const userVolumeRef = useRef(1);
   const [fadeOut, setFadeOut] = useState(0);
   const [liveFade, setLiveFade] = useState(false);
   const FADE_DURATION = 3; // seconds before end to start fading
@@ -107,8 +119,8 @@ export default function YouTubeBackground({
         if (p && isPlayerAlive(p)) p.seekTo?.(Math.max(0, Number(timeSec) || 0), true);
       },
       setVolume: (v) => {
-        const p = playerPlayerRef.current;
-        if (p && isPlayerAlive(p)) p.setVolume?.(Math.max(0, Math.min(100, Math.round((Number(v) || 0) * 100))));
+        userVolumeRef.current = Math.max(0, Math.min(1, Number(v) || 0));
+        applyVolume(playerPlayerRef.current, userVolumeRef.current);
       },
       getState: () => {
         const p = playerPlayerRef.current;
@@ -118,7 +130,7 @@ export default function YouTubeBackground({
             playing: p.getPlayerState?.() === window.YT.PlayerState.PLAYING,
             currentTime: Number(p.getCurrentTime?.() || 0),
             duration: Number(p.getDuration?.() || 0),
-            volume: (Number(p.getVolume?.() || 100)) / 100,
+            volume: userVolumeRef.current,
           };
         } catch (_) {
           return { playing: false, currentTime: 0, duration: 0, volume: 1 };
@@ -210,6 +222,7 @@ export default function YouTubeBackground({
 
     // If same video, just resume
     if (playerVideoId === playerIdRef.current && playerPlayerRef.current && isPlayerAlive(playerPlayerRef.current)) {
+      applyVolume(playerPlayerRef.current, userVolumeRef.current);
       playerPlayerRef.current.playVideo?.();
       return;
     }
@@ -218,6 +231,7 @@ export default function YouTubeBackground({
 
     if (playerPlayerRef.current && isPlayerAlive(playerPlayerRef.current)) {
       playerPlayerRef.current.loadVideoById(playerVideoId);
+      applyVolume(playerPlayerRef.current, userVolumeRef.current);
       return;
     }
 
@@ -242,16 +256,28 @@ export default function YouTubeBackground({
           origin: window.location.origin,
         },
         events: {
-          onReady: (e) => e.target.playVideo(),
+          onReady: (e) => {
+            applyVolume(e.target, userVolumeRef.current);
+            e.target.playVideo();
+          },
           onStateChange: (e) => {
             if (e.data === window.YT.PlayerState.ENDED) {
               onTrackEnded?.();
             }
           },
+          // Player mode had no error handler at all: an embed-blocked video
+          // left the player sitting on a dead frame forever. Any error code
+          // here means this track will not play, so move on.
+          onError: (e) => {
+            const code = Number(e?.data || 0);
+            const badId = playerIdRef.current;
+            console.warn(`[YT] Player video ${badId} failed (error ${code}) — skipping`);
+            onPlayerVideoError?.(badId, code);
+          },
         },
       });
     });
-  }, [playerVideoId, isPlayerMode, onTrackEnded]);
+  }, [playerVideoId, isPlayerMode, onTrackEnded, onPlayerVideoError]);
 
   // Pause player IFrame when leaving player mode
   useEffect(() => {
@@ -276,7 +302,6 @@ export default function YouTubeBackground({
       try {
         const currentTime = Number(p.getCurrentTime?.() || 0);
         const duration = Number(p.getDuration?.() || 0);
-        const volume = (Number(p.getVolume?.() || 100)) / 100;
         const playing = p.getPlayerState?.() === window.YT.PlayerState.PLAYING;
         const remaining = duration - currentTime;
 
@@ -289,9 +314,14 @@ export default function YouTubeBackground({
           p.setVolume(fadedVol);
         } else if (remaining > FADE_DURATION) {
           setFadeOut(0);
+          // Undo any leftover fade volume from the previous track.
+          const target = Math.round(userVolumeRef.current * 100);
+          if (p.isMuted?.() || Math.abs(Number(p.getVolume?.() ?? target) - target) > 1) {
+            applyVolume(p, userVolumeRef.current);
+          }
         }
 
-        onPlayerState?.({ playing, currentTime, duration, volume });
+        onPlayerState?.({ playing, currentTime, duration, volume: userVolumeRef.current });
       } catch (_) {}
     }, 250);
 

@@ -109,7 +109,19 @@ def init_db(conn: sqlite3.Connection):
             PRIMARY KEY (artist, title)
         );
 
+        CREATE TABLE IF NOT EXISTS rando_stats (
+            video_id       TEXT PRIMARY KEY,
+            artist         TEXT NOT NULL DEFAULT '',
+            title          TEXT NOT NULL DEFAULT '',
+            picks          INTEGER NOT NULL DEFAULT 0,
+            finishes       INTEGER NOT NULL DEFAULT 0,
+            skips          INTEGER NOT NULL DEFAULT 0,
+            played_seconds REAL NOT NULL DEFAULT 0,
+            last_played_at TEXT
+        );
+
         CREATE INDEX IF NOT EXISTS idx_play_history_played_at ON play_history(played_at);
+        CREATE INDEX IF NOT EXISTS idx_rando_stats_last_played ON rando_stats(last_played_at);
         CREATE INDEX IF NOT EXISTS idx_playlist_tracks_playlist ON playlist_tracks(playlist_id, position);
         CREATE INDEX IF NOT EXISTS idx_downloads_state ON downloads(state);
         CREATE INDEX IF NOT EXISTS idx_tracks_artist_title ON tracks(artist, title);
