@@ -458,6 +458,7 @@ export default function App() {
       <YtMissesPanel visible={showMisses} />
       <PlayerControls
         visible={isPlayer}
+        media={displayMedia}
         currentTrack={currentPlayerTrack}
         nextTrack={nextPlayerTrack}
         queuePosition={playerIndex}

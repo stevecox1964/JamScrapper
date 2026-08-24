@@ -969,19 +969,112 @@ body {
    player bar is right-aligned and capped to whatever is left over. */
 .player-controls {
   position: fixed;
+  left: 16px;
   right: 16px;
   bottom: 16px;
   z-index: 40;
-  width: min(920px, calc(100vw - 570px));
-  display: grid;
-  grid-template-columns: 2fr 1fr 2fr 1fr;
-  gap: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 20px;
   align-items: center;
   background: rgba(0, 0, 0, 0.82);
   border: 1px solid #333;
   border-radius: 12px;
   backdrop-filter: blur(10px);
   padding: 10px 12px;
+  transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Retracted: the whole bar drops off-screen, only the pull-tab stays. */
+.player-controls.retracted {
+  transform: translateY(calc(100% + 16px));
+}
+
+/* Pull-tab arrow button — sits just above the bar */
+.player-controls-tab {
+  position: absolute;
+  left: 50%;
+  top: -28px;
+  transform: translateX(-50%);
+  width: 56px;
+  height: 28px;
+  background: rgba(0, 0, 0, 0.82);
+  border: 1px solid #333;
+  border-bottom: none;
+  border-radius: 10px 10px 0 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  opacity: 0.85;
+  transition: opacity 0.3s ease, background 0.2s ease;
+  pointer-events: auto;
+}
+
+.player-controls:hover .player-controls-tab {
+  opacity: 1;
+}
+
+.player-controls.retracted .player-controls-tab {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.player-controls-tab:hover {
+  background: rgba(30, 30, 40, 0.95);
+}
+
+.player-controls-tab:hover .tab-arrow {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+/* Song info half of the card */
+.player-main {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex: 1 1 320px;
+  min-width: 0;
+}
+
+.player-art {
+  width: 64px;
+  height: 64px;
+  border-radius: 10px;
+  object-fit: cover;
+  flex-shrink: 0;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.5);
+}
+
+.player-album {
+  color: #888;
+  font-size: 12px;
+}
+
+.player-genres {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+/* Transport half of the card */
+.player-transport {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex: 2 1 480px;
+  min-width: 0;
+}
+
+.player-transport .player-seek {
+  flex: 1 1 auto;
+  min-width: 120px;
+}
+
+.player-transport .player-volume {
+  flex: 0 1 140px;
 }
 
 .player-track {
@@ -1079,7 +1172,7 @@ body {
 }
 
 .player-up-next {
-  grid-column: 1 / -1;
+  flex: 1 1 100%;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1371,12 +1464,3 @@ body {
   border-radius: 6px;
 }
 
-/* Too narrow to sit beside the card — stack the player bar above it instead. */
-@media (max-width: 1180px) {
-  .player-controls {
-    right: 50%;
-    transform: translateX(50%);
-    bottom: 150px;
-    width: 94vw;
-  }
-}
