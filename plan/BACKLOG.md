@@ -5,6 +5,113 @@ Newest at the top. Move an item into a handoff when work actually starts.
 
 ---
 
+## Song signatures — real audio features from the local video files
+
+**Added:** 2026-08-21 · **Promoted to next-up and re-verified 2026-08-23**
+**Status:** NEXT UP. Approach agreed, environment checked, no code written yet.
+**Blocks:** "Playlists + mood steering for Rando" (below)
+**Decision made:** compute locally from the files we already have. AcousticBrainz was
+considered and rejected — frozen since 2022, patchy coverage, and we store artist MBIDs
+but not per-song recording MBIDs, so it needs a lookup pass before it can even be queried.
+
+### The problem this fixes
+
+Rando's mood counter is **genre-tag matching, not a real signature**. Any "chill vs energetic"
+steering built on tags is guessing.
+
+**This stopped being a theory on 2026-08-23.** The mood display shipped, and in testing the tag
+`british` — which says nothing whatever about how a song sounds — reached **0.70 weight**,
+steering the picker as hard as a real genre. Watch the Vibe row for one session and it will keep
+proving itself. This item replaces the guess with measured numbers.
+
+### Environment — all re-checked 2026-08-23, none of this is assumed
+
+| Thing | State | Note |
+|---|---|---|
+| Python | **3.14.4** | NOT 3.11 — older notes are wrong |
+| numpy | 2.4.4 | librosa does **not** force a downgrade (dry-run verified) |
+| `librosa` / `soundfile` | **not installed** | `pip install --dry-run` resolves clean |
+| Resolved install | librosa **1.0.0**, numba **0.67.0**, llvmlite **0.49.0** | all have `cp314` wheels |
+| ffmpeg | `N-92621` ✓ | on PATH |
+| Real song files | **367** mp4 | fragments excluded from this count |
+| Junk in the videos folder | only **4** leftovers | was 144 — mostly cleaned up already |
+| Videos folder | **17 GB** | |
+
+The old note said "389 mp4 files". That counted yt-dlp fragments as songs. **367** is the real
+number of analysable tracks.
+
+### Measured, not estimated
+
+ffmpeg pulling a 60-second mono 22 kHz wav out of a real 8.9 MB song: **0.137 seconds**.
+
+- Extraction for the whole library: **under a minute**.
+- librosa analysis is the slow half — `beat_track` dominates, roughly 2–4 s per track.
+- **Realistic full batch: 15–25 minutes.** The old "~1 hour" guess was pessimistic.
+
+### Proposed signature (per video_id, computed once)
+
+| Field | What it means | Source |
+|---|---|---|
+| `bpm` | speed | `librosa.beat.beat_track` |
+| `energy` | average loudness | RMS mean |
+| `dynamics` | flat vs swelling | RMS standard deviation |
+| `brightness` | dark/warm vs bright/sharp | spectral centroid mean |
+| `key` + `mode` | major sounds happy, minor sounds sad | chroma + Krumhansl profile |
+| `duration` | length | already in `tracks` |
+
+New table, mirroring the existing store pattern in `db.py`:
+
+```sql
+CREATE TABLE IF NOT EXISTS signatures (
+    video_id    TEXT PRIMARY KEY,
+    bpm         REAL,
+    energy      REAL,
+    dynamics    REAL,
+    brightness  REAL,
+    key         TEXT,
+    mode        TEXT,
+    analysed_at TEXT NOT NULL
+);
+```
+
+### Plan when picked up
+
+1. `pip install librosa soundfile`, then add both to `requirements.txt`.
+2. New `backend/signature_store.py` following the `media_cache.py` / `artist_store.py` shape
+   (constructor takes `conn`, blocking work marked for `asyncio.to_thread()`).
+3. ffmpeg extracts 22 kHz mono wav to a temp file; librosa reads that. Do **not** hand mp4
+   straight to librosa — it is slow and needs audioread.
+4. Analyse a **60-second slice from the middle**, not the whole track. Intros and outros skew
+   every one of these numbers, and it cuts batch time by roughly 4x.
+5. One-time resumable batch over the 367 files. Must log every file it skips **and why** — a
+   silent skip here is exactly the failure mode to avoid.
+6. Hook into `video_downloader.py` so each new download is analysed on arrival.
+7. Only then rewire `radio.py` scoring from genre overlap to signature distance.
+
+### Two things worth knowing before starting
+
+**The pip install is the only risky step.** numba and llvmlite are compiled, and they are the
+usual blockers on a new Python. The dry-run says wheels exist for 3.14 — but run the install on
+its own, confirm the backend still starts, and only then write code against it.
+
+**Rando now has better feedback data than when this was written.** `rando_stats` gained `votes`
+(explicit thumbs) and `passes` ("not right now") on 2026-08-23. When step 7 arrives, signature
+distance can be validated against real like/dislike data instead of vibes.
+
+### Open question deferred to build time
+
+How to combine signature distance with the genre overlap that already works. Replace it, or blend
+the two? Genre still carries information audio does not — a cover version sounds like the original
+but sits in a different scene. Likely both, weighted, but decide with the data in front of you.
+
+### First step when this is picked up
+
+Install librosa, analyse **ten** files, and print the table. Look at whether the bpm and energy
+numbers actually separate songs you know are different. If they do, the remaining 357 are a batch
+job. If they do not, no hour was spent finding out.
+
+---
+
 ## ~~Show the mood~~ — DONE 2026-08-23
 
 Was the "first step" of the mood-steering item below. Built the same day it was picked up.
@@ -279,83 +386,6 @@ stay available. But that is Steve's call to make, not a cleanup to slip into ano
 
 ---
 
-## Song signatures — real audio features from the local video files
-
-**Added:** 2026-08-21
-**Status:** Not started — agreed approach, not scheduled
-**Blocks:** "Playlists + mood steering for Rando" (below)
-**Decision made:** compute locally from the files we already have. AcousticBrainz was
-considered and rejected — frozen since 2022, patchy coverage, and we store artist MBIDs
-but not per-song recording MBIDs, so it needs a lookup pass before it can even be queried.
-
-### The problem this fixes
-
-Rando's mood counter today is **genre-tag matching, not a real signature**. Genre tags are a
-weak proxy: the live data contains tags like `british`, `american`, and `spotify boycott` that
-say nothing about how a song sounds. Any "chill vs energetic" steering built on tags alone is
-guessing. This item replaces the guess with measured numbers.
-
-### What we already have
-
-- **389 mp4 files on disk**, 13 GB, at `backend/data/media_cache/videos/{video_id}.mp4`
-- **ffmpeg installed** (`ffmpeg version N-92621`) — can pull an audio track out of any of them
-- `numpy` and `scipy` already installed
-- `video_downloader.py` already auto-downloads every found video, so new songs arrive for free
-
-### What is missing
-
-- `librosa` and `soundfile` are not installed (`pip install librosa soundfile`)
-- No table to hold the results
-- No batch job, no incremental hook
-
-### Proposed signature (per video_id, computed once)
-
-| Field | What it means | Source |
-|---|---|---|
-| `bpm` | speed | `librosa.beat.beat_track` |
-| `energy` | average loudness | RMS mean |
-| `dynamics` | flat vs swelling | RMS standard deviation |
-| `brightness` | dark/warm vs bright/sharp | spectral centroid mean |
-| `key` + `mode` | major sounds happy, minor sounds sad | chroma + Krumhansl profile |
-| `duration` | length | already in `tracks` |
-
-New table, mirroring the existing store pattern in `db.py`:
-
-```sql
-CREATE TABLE IF NOT EXISTS signatures (
-    video_id    TEXT PRIMARY KEY,
-    bpm         REAL,
-    energy      REAL,
-    dynamics    REAL,
-    brightness  REAL,
-    key         TEXT,
-    mode        TEXT,
-    analysed_at TEXT NOT NULL
-);
-```
-
-### Plan when picked up
-
-1. `pip install librosa soundfile`, then add both to the requirements file.
-2. New `backend/signature_store.py` following the `media_cache.py` / `artist_store.py` shape.
-3. ffmpeg extracts 22 kHz mono wav to a temp file; librosa reads that. Do **not** hand mp4
-   straight to librosa — it is slow and needs audioread.
-4. Analyse a 60-second slice from the middle of the track, not the whole thing. Intros and
-   outros skew every one of these numbers, and it cuts the batch time by roughly 4x.
-5. One-time batch script over the 389 files. Rough estimate ~1 hour; must be resumable and must
-   log every file it skips and why — a silent skip here is exactly the failure mode to avoid.
-6. Hook into `video_downloader.py` so each new download is analysed on arrival.
-7. Only then rewire `radio.py` scoring from genre overlap to signature distance.
-
-### Open question deferred to build time
-
-How to combine signature distance with the genre overlap that already works. Replace it,
-or blend the two? Genre still carries information that audio does not (a cover version sounds
-like the original but sits in a different scene). Likely both, weighted — but decide with the
-data in front of you, not now.
-
----
-
 ## Playlists + mood steering for Rando
 
 **Added:** 2026-08-21
@@ -403,8 +433,10 @@ instead of only watching where the drift goes.
 
 ### Known unknowns
 
-- **This item is blocked on real song signatures — see the item above.** Mood steering built on
-  genre tags alone is guessing, and the user called this out directly on 2026-08-21.
+- **This item is blocked on real song signatures — now the next thing being built (2026-08-23).**
+  Mood steering built on genre tags alone is guessing, and the user called this out directly on
+  2026-08-21. The mood display has since shown the junk tag `british` steering at 0.70 weight,
+  which settles the argument.
 - Genre tags are MusicBrainz-flavoured and noisy — the live data contains junk tags like
   `spotify boycott` and country tags like `british` / `american` that carry no mood. A stop-list
   or a weighting pass is probably needed even after signatures land, wherever genre is still used.
