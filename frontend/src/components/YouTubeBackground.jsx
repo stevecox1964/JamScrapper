@@ -90,6 +90,15 @@ export default function YouTubeBackground({
   // Desired playback volume (0-1). The end-of-track fade lowers the YouTube
   // player's volume, so we keep the intended level here and restore it.
   const userVolumeRef = useRef(1);
+  // App.jsx defines these inline, so they are a new function on every render.
+  // Depending on them directly re-ran the player effect on every render, and
+  // that effect calls playVideo() -- which un-paused the track ~4x a second.
+  const onTrackEndedRef = useRef(onTrackEnded);
+  const onPlayerVideoErrorRef = useRef(onPlayerVideoError);
+  const onPlayerStateRef = useRef(onPlayerState);
+  onTrackEndedRef.current = onTrackEnded;
+  onPlayerVideoErrorRef.current = onPlayerVideoError;
+  onPlayerStateRef.current = onPlayerState;
   const [fadeOut, setFadeOut] = useState(0);
   const [liveFade, setLiveFade] = useState(false);
   const FADE_DURATION = 3; // seconds before end to start fading
@@ -222,8 +231,13 @@ export default function YouTubeBackground({
 
     // If same video, just resume
     if (playerVideoId === playerIdRef.current && playerPlayerRef.current && isPlayerAlive(playerPlayerRef.current)) {
-      applyVolume(playerPlayerRef.current, userVolumeRef.current);
-      playerPlayerRef.current.playVideo?.();
+      const p = playerPlayerRef.current;
+      applyVolume(p, userVolumeRef.current);
+      // Only resume a player that actually stopped on its own. Calling
+      // playVideo() unconditionally overrode the user's Pause button.
+      const state = p.getPlayerState?.();
+      const PAUSED = window.YT?.PlayerState?.PAUSED;
+      if (state !== PAUSED) p.playVideo?.();
       return;
     }
     playerIdRef.current = playerVideoId;
@@ -262,7 +276,7 @@ export default function YouTubeBackground({
           },
           onStateChange: (e) => {
             if (e.data === window.YT.PlayerState.ENDED) {
-              onTrackEnded?.();
+              onTrackEndedRef.current?.();
             }
           },
           // Player mode had no error handler at all: an embed-blocked video
@@ -272,12 +286,12 @@ export default function YouTubeBackground({
             const code = Number(e?.data || 0);
             const badId = playerIdRef.current;
             console.warn(`[YT] Player video ${badId} failed (error ${code}) — skipping`);
-            onPlayerVideoError?.(badId, code);
+            onPlayerVideoErrorRef.current?.(badId, code);
           },
         },
       });
     });
-  }, [playerVideoId, isPlayerMode, onTrackEnded, onPlayerVideoError]);
+  }, [playerVideoId, isPlayerMode]);
 
   // Pause player IFrame when leaving player mode
   useEffect(() => {
@@ -321,7 +335,7 @@ export default function YouTubeBackground({
           }
         }
 
-        onPlayerState?.({ playing, currentTime, duration, volume: userVolumeRef.current });
+        onPlayerStateRef.current?.({ playing, currentTime, duration, volume: userVolumeRef.current });
       } catch (_) {}
     }, 250);
 
@@ -331,7 +345,7 @@ export default function YouTubeBackground({
         playerTimerRef.current = null;
       }
     };
-  }, [isPlayerMode, playerVideoId, onPlayerState]);
+  }, [isPlayerMode, playerVideoId]);
 
   const showLive = !isPlayerMode;
   const showPlayer = isPlayerMode && Boolean(playerVideoId);
