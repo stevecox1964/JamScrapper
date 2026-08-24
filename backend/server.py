@@ -575,6 +575,18 @@ async def _enrich_track(artist, title, album, thumb_b64, history_id=None):
     if yt_task:
         await yt_task
 
+    # Save the album onto the catalog row. This has to run after the YouTube
+    # search, because that search is what creates the row in the first place.
+    # `tracks.album` shipped with the table and nothing ever wrote to it, so
+    # every one of the 624 rows was blank.
+    final_album = media_info.get("album", "") or album
+    if final_album and artist and title:
+        try:
+            if media_cache.set_album(artist, title, final_album):
+                print(f"  Album saved to catalog: {final_album}")
+        except Exception as e:
+            print(f"  Album catalog write error: {e}")
+
     # Backfill all enrichment data to play_history
     if history_id and not _stale():
         try:

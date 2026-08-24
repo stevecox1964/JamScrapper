@@ -119,7 +119,8 @@ Tracks with no YouTube match are recorded in a miss cache (7-day TTL) and surfac
 - Node.js 18+
 - Google Chrome (for the track detection extension)
 - `yt-dlp` installed and on PATH (for YouTube search, thumbnails, and video downloads) — keep it updated
-- `ffmpeg` on PATH (yt-dlp merges video and audio with it)
+- `ffmpeg` **and `ffprobe`** on PATH — yt-dlp merges video and audio with them, and song
+  signatures use them to pull the audio out of each saved mp4
 
 ### Quick Start
 
@@ -130,6 +131,18 @@ cd ../frontend && npm install
 
 # Run everything
 start.bat
+```
+
+`requirements.txt` includes `librosa` and `soundfile` for song signatures. They pull in
+`numba` and `llvmlite`, which are compiled — on a brand-new Python release those are the
+first packages to lack wheels. If the install fails there, check the Python version first.
+Verified working on Python **3.14** with numpy 2.4.4 (librosa does not force a numpy downgrade).
+
+To confirm the audio side is ready:
+
+```bash
+cd backend && python -c "import librosa, soundfile; print(librosa.__version__)"
+ffprobe -version
 ```
 
 `start.bat` kills any stale processes on the required ports, waits for them to fully release, verifies the ports are free, then launches the backend, frontend dev server, and opens the browser automatically. If a port is still in use after cleanup, it exits with an error rather than launching a second instance.
@@ -263,4 +276,5 @@ The Windows media session fallback works with any app that exposes "Now Playing"
 - Windows only (WASAPI loopback + WinRT media session)
 - Google Chrome with the extension installed (for web player track detection)
 - `yt-dlp` on PATH (for YouTube search, thumbnails, and video downloads)
-- `ffmpeg` on PATH (video/audio merging)
+- `ffmpeg` and `ffprobe` on PATH (video/audio merging, and audio extraction for song signatures)
+- Python packages: `pip install -r backend/requirements.txt`

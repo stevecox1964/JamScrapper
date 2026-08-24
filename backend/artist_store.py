@@ -1,4 +1,5 @@
 import re
+import time
 import asyncio
 from datetime import datetime, timezone
 from io import BytesIO
@@ -125,32 +126,125 @@ def fetch_genres_from_musicbrainz(artist_name):
 
 # ---------- MusicBrainz album fetch ----------
 
+# Release-group secondary types that mean "this is not the album the song came
+# from": live sets, hits compilations, soundtracks and so on.
+NOT_THE_ALBUM = {
+    "live", "compilation", "soundtrack", "remix", "dj-mix",
+    "demo", "mixtape/street", "interview", "audiobook", "spokenword",
+}
+
+
+# Bracketed suffixes that are about the *pressing*, not the song. Stripping
+# these is what makes "cherub rock (2011 remaster)" findable. Anything else in
+# brackets is left alone, because plenty of real titles need it --
+# "movin' out (anthony's song)", "(you gotta) fight for your right (to party!)".
+VERSION_NOISE = re.compile(
+    r"\s*[\(\[][^\)\]]*("
+    r"remaster(ed)?|re-?master|version|edit|mix|mono|stereo|deluxe|bonus|"
+    r"anniversary|reissue|remix|radio edit|album version|explicit|clean|"
+    r"[0-9]{4}|digital"
+    r")[^\)\]]*[\)\]]",
+    re.IGNORECASE,
+)
+
+
+def _strip_version_noise(title):
+    """'song 2 (2012 remaster)' -> 'song 2'. Returns "" if nothing was stripped."""
+    cleaned = VERSION_NOISE.sub("", title or "").strip()
+    cleaned = re.sub(r"\s{2,}", " ", cleaned)
+    if not cleaned or cleaned.lower() == (title or "").strip().lower():
+        return ""
+    return cleaned
+
+
+class MusicBrainzUnavailable(Exception):
+    """The server was busy or down. Says nothing about whether an album exists.
+
+    Kept separate from a blank result on purpose: a blank means "we looked and
+    found no studio album", which is a real answer worth recording. This means
+    "we never got to look", and the caller should try again later rather than
+    write the song off.
+    """
+
+
 def fetch_album_from_musicbrainz(artist_name, title):
-    """Look up the album (release) for a specific song via MusicBrainz recording search."""
+    """Find the studio album a song first appeared on. Returns "" if unsure.
+
+    The old version asked for one recording and took its first release. That is
+    close to random: MusicBrainz attaches bootlegs and live sets to a recording
+    just as readily as the real album, and it returned things like
+    "1992-12-20: Seattle Center Arena" as the album for "Man in the Box".
+
+    So: scan every strong recording match, keep only official, Album-type
+    releases that are not live/compilation/soundtrack, and take the earliest —
+    the album a song first appeared on is the one people mean. A blank is
+    better than a wrong album, so anything that fails the filter returns "".
+    """
+    for attempt_title in (title, _strip_version_noise(title)):
+        if not attempt_title:
+            continue
+        album = _album_query(artist_name, attempt_title)
+        if album:
+            return album
+    return ""
+
+
+def _album_query(artist_name, title, retries=2):
+    """One MusicBrainz search. Returns the best album title, or "".
+
+    Raises MusicBrainzUnavailable if the server would not answer, so a busy
+    server is never mistaken for a song that has no album.
+    """
+    resp = None
+    for attempt in range(retries + 1):
+        try:
+            resp = requests.get(
+                f"{MUSICBRAINZ_BASE}/recording",
+                params={
+                    "query": f'recording:"{title}" AND artist:"{artist_name}"',
+                    "fmt": "json",
+                    "limit": 100,
+                },
+                headers=MUSICBRAINZ_HEADERS,
+                timeout=15,
+            )
+        except requests.RequestException as e:
+            if attempt == retries:
+                raise MusicBrainzUnavailable(str(e)) from e
+            time.sleep(2 * (attempt + 1))
+            continue
+        # 503 means "slow down" far more often than it means "broken".
+        if resp.status_code in (429, 500, 502, 503, 504):
+            if attempt == retries:
+                raise MusicBrainzUnavailable(f"HTTP {resp.status_code}")
+            time.sleep(2 * (attempt + 1))
+            continue
+        break
+
     try:
-        resp = requests.get(
-            f"{MUSICBRAINZ_BASE}/recording",
-            params={
-                "query": f'recording:"{title}" AND artist:"{artist_name}"',
-                "fmt": "json",
-                "limit": 1,
-            },
-            headers=MUSICBRAINZ_HEADERS,
-            timeout=8,
-        )
         resp.raise_for_status()
-        recordings = resp.json().get("recordings", [])
-        if not recordings:
-            return ""
-        # Get the first release (album) from the top recording match
-        releases = recordings[0].get("releases", [])
-        if not releases:
-            return ""
-        # Prefer albums over singles — look for one with a status of "Official"
-        for rel in releases:
-            if rel.get("status") == "Official":
-                return rel.get("title", "")
-        return releases[0].get("title", "")
+
+        best_date, best_title = None, ""
+        for rec in resp.json().get("recordings", []):
+            # A weak name match is usually a different song entirely.
+            if (rec.get("score") or 0) < 90:
+                continue
+            for rel in rec.get("releases", []):
+                if rel.get("status") != "Official":
+                    continue
+                group = rel.get("release-group") or {}
+                if (group.get("primary-type") or "") != "Album":
+                    continue
+                secondary = {s.lower() for s in (group.get("secondary-types") or [])}
+                if secondary & NOT_THE_ALBUM:
+                    continue
+                date = group.get("first-release-date") or rel.get("date") or ""
+                if not date:
+                    continue
+                if best_date is None or date < best_date:
+                    best_date = date
+                    best_title = group.get("title") or rel.get("title") or ""
+        return best_title
     except Exception as e:
         print(f"MusicBrainz album lookup error: {e}")
         return ""

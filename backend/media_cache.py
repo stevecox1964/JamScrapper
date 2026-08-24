@@ -30,7 +30,7 @@ class MediaCache:
 
     def get_cached(self, artist, title):
         row = self._conn.execute(
-            "SELECT video_id, video_title, channel, duration, thumbnail_url, video_url FROM tracks WHERE artist = ? AND title = ?",
+            "SELECT video_id, video_title, channel, duration, thumbnail_url, video_url, album FROM tracks WHERE artist = ? AND title = ?",
             (artist.lower().strip(), title.lower().strip())
         ).fetchone()
         if not row:
@@ -42,8 +42,31 @@ class MediaCache:
             "duration": row["duration"],
             "thumbnailUrl": row["thumbnail_url"],
             "videoUrl": row["video_url"],
+            "album": row["album"] or "",
             "localThumbnail": f"thumbnails/{row['video_id']}.jpg",
         }
+
+    def set_album(self, artist, title, album):
+        """Write the album onto an existing catalog row.
+
+        The `tracks.album` column shipped with the table and nothing ever wrote
+        to it — all 624 rows were blank. The album is usually learned after the
+        row is created (MusicBrainz enrichment finishes later than the YouTube
+        search), so this is a separate call rather than part of the INSERT.
+
+        Only fills a blank. A real album already on the row is never overwritten.
+        Returns True if a row was actually updated.
+        """
+        album = (album or "").strip()
+        if not album or not artist or not title:
+            return False
+        cur = self._conn.execute(
+            "UPDATE tracks SET album = ? "
+            "WHERE artist = ? AND title = ? AND (album IS NULL OR album = '')",
+            (album, artist.lower().strip(), title.lower().strip()),
+        )
+        self._conn.commit()
+        return cur.rowcount > 0
 
     def get_recent_miss(self, artist, title):
         """Return True if we searched YouTube for this track within MISS_TTL and found nothing."""

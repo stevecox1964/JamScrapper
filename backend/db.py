@@ -122,6 +122,17 @@ def init_db(conn: sqlite3.Connection):
             last_played_at TEXT
         );
 
+        CREATE TABLE IF NOT EXISTS signatures (
+            video_id    TEXT PRIMARY KEY,
+            bpm         REAL,
+            energy      REAL,
+            dynamics    REAL,
+            brightness  REAL,
+            key         TEXT,
+            mode        TEXT,
+            analysed_at TEXT NOT NULL
+        );
+
         CREATE INDEX IF NOT EXISTS idx_play_history_played_at ON play_history(played_at);
         CREATE INDEX IF NOT EXISTS idx_rando_stats_last_played ON rando_stats(last_played_at);
         CREATE INDEX IF NOT EXISTS idx_playlist_tracks_playlist ON playlist_tracks(playlist_id, position);
