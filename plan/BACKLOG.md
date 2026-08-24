@@ -5,6 +5,105 @@ Newest at the top. Move an item into a handoff when work actually starts.
 
 ---
 
+## Discovery — where new songs come from after Pandora
+
+**Added:** 2026-08-23
+**Status:** Agreed approach, not scheduled. No code written.
+**Relates to:** `backend/media_cache.py`, `backend/video_downloader.py`,
+`backend/artist_store.py`, `backend/radio.py`, `plan/TASTE.md`
+
+### The problem
+
+The library only grows when Pandora plays something we have never seen. Every other part of
+the app is downstream of that one event. Rando does not find music — it re-shuffles the 624
+tracks already on disk. When the Pandora drain ends, the library freezes.
+
+Confirmed by reading the backend on 2026-08-23: **there is no discovery code at all.** Nothing
+in `backend/*.py` contacts Last.fm, ListenBrainz, or any "artists like this" service.
+`media_cache.search_youtube()` only runs *after* something else has already supplied an artist
+and a title. Pandora is that something.
+
+### What we have to build on
+
+| Thing | Count | Note |
+|---|---|---|
+| `tracks` rows | 624 | anything here with a `video_id` is already a Rando candidate |
+| distinct artists in `tracks` | 204 | the seed set for "who sounds like this" |
+| `artists` profiles | 225 | already carry `genres` and `mood_tags` |
+| downloaded videos | **252 complete**, 11.2 GB | avg **45 MB** per song (see note) |
+
+The back half of the pipeline already exists and needs no changes:
+`media_cache.search_youtube(artist, title)` → `tracks` row → `video_downloader` saves the mp4.
+Discovery only has to answer one new question: **what artist and title do we look up next?**
+
+### Proposed shape
+
+New `backend/discovery.py`, following the `media_cache.py` / `artist_store.py` class shape
+(constructor takes `conn`, blocking network calls marked for `asyncio.to_thread()`).
+
+1. Pick a seed artist from the library. Weight by what actually got finished — `rando_stats`
+   already holds finishes and skips per song, so a seed can mean "more of what worked".
+2. Ask the API for similar artists. Drop any artist already in `tracks`.
+3. Ask for that artist's top tracks. Take one — not the whole discography.
+4. Filter against `plan/TASTE.md` **"Never again"** before spending anything. This is a hard
+   exclude, applied at pick time, not after the download.
+5. Hand `(artist, title)` to the existing `search_youtube` → download path.
+6. Record the outcome either way in a new table, so nothing is ever suggested twice.
+
+```sql
+CREATE TABLE IF NOT EXISTS discovery (
+    artist       TEXT NOT NULL,
+    title        TEXT NOT NULL,
+    seed_artist  TEXT NOT NULL,
+    source       TEXT NOT NULL,   -- 'lastfm' | 'listenbrainz'
+    state        TEXT NOT NULL,   -- 'suggested' | 'imported' | 'no_video' | 'excluded'
+    reason       TEXT,            -- why excluded, or which yt query failed
+    created_at   TEXT NOT NULL,
+    PRIMARY KEY (artist, title)
+);
+```
+
+### Which API
+
+**Last.fm `artist.getSimilar` + `artist.getTopTracks`.** Free API key, one signup, no cost, and
+the similarity data is built from real listening rather than editorial tags. This is the pick.
+
+**ListenBrainz** needs no key at all and is the fallback if the key ever becomes a problem, but
+its similarity coverage is thinner on the long-tail artists this library is full of. Do not build
+for both up front — put the API call behind one function and swap it if Last.fm disappoints.
+
+### Two things that will bite
+
+**A flood will hijack Rando.** `radio.py::_candidates()` gives a never-played song the *maximum*
+freshness boost. Import 200 songs at once and Rando plays almost nothing else for days. Import a
+trickle — a handful per run, with a hard cap — and the new songs mix in instead of taking over.
+
+**Disk.** 45 MB per song is measured, not guessed. Ten songs a day is about 13 GB a month.
+Whatever the cap is, it should be a real number in the config, not left open.
+
+The videos folder holds 466 files but only **252 are complete songs**. The rest is 68 `.fNNN.mp4`
+yt-dlp fragments (1.4 GB) and 76 `.temp` / `.part` / `.ytdl` leftovers (0.09 GB) from downloads
+that died and were never cleaned up or retried. Discovery must not add to that pile: a failed
+download has to clean up after itself and say so. Note this also means the "389 mp4 files"
+in the song-signatures item below is an overcount — it counted fragments as songs.
+
+### Open questions — decide before building
+
+- **Auto or approve?** Does a found song land in the library on its own, or sit in a queue for
+  Steve to say yes to? Auto is less work and matches how Pandora fed the library. A queue is
+  safer for disk and for taste, but it is a new bit of UI and a new habit to maintain.
+- **What triggers a run?** A button, a nightly job, or "top up when the library gets stale".
+- **Does a new song get marked as new?** A first play is an audition. Worth knowing whether a
+  skip means "bad song" or "not right now" — `rando_stats` cannot tell those apart today.
+
+### First step when this is picked up
+
+Do not write the importer first. Write the *read-only* half: seed from the library, call Last.fm,
+print the 20 artists it suggests that we do not already own. Look at that list. If it is good, the
+rest is plumbing we already have. If it is junk, no download quota was spent finding out.
+
+---
+
 ## ~~Rando plays do not feed the freshness signal~~ — DONE 2026-08-21
 
 Fixed the same day it was written. `rando_stats.last_played_at` now feeds `_last_played()`

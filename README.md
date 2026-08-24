@@ -31,6 +31,31 @@ JamScrapper supports two workflows:
 
 Player mode streams directly via the YouTube IFrame API — no local files needed. Player state (queue, position, volume) persists to SQLite and restores on reload.
 
+## Local Video Cache
+
+Every video JamScrapper finds is also downloaded to `backend/data/media_cache/videos/{video_id}.mp4`
+(skipped if it is already on disk). The local file is the fallback when a YouTube embed is blocked,
+so a track that will not play in the iframe still plays.
+
+Downloads ask for **AAC (m4a) audio** rather than YouTube's default Opus. Opus cannot be muxed into
+an mp4 by older ffmpeg builds: the download succeeds, the merge fails, and the result is a pile of
+`.fNNN` fragments instead of a song. A failed download now records the real yt-dlp error and deletes
+its own leftovers.
+
+To retry everything that previously failed:
+
+```bash
+python backend/retry_failed_downloads.py --dry-run   # list what would be retried
+python backend/retry_failed_downloads.py             # retry, resumable, reports every track
+```
+
+If downloads start failing with `HTTP Error 403: Forbidden`, yt-dlp is out of date —
+YouTube changes break it regularly:
+
+```bash
+python -m pip install -U yt-dlp
+```
+
 ## History Panel
 
 The play history panel shows a live card view of recent tracks:
@@ -93,7 +118,8 @@ Tracks with no YouTube match are recorded in a miss cache (7-day TTL) and surfac
 - Python 3.11+ (Python 3.14 supported; WinRT media session fallback is disabled but not required)
 - Node.js 18+
 - Google Chrome (for the track detection extension)
-- `yt-dlp` installed and on PATH (for YouTube search and thumbnails)
+- `yt-dlp` installed and on PATH (for YouTube search, thumbnails, and video downloads) — keep it updated
+- `ffmpeg` on PATH (yt-dlp merges video and audio with it)
 
 ### Quick Start
 
@@ -175,11 +201,14 @@ backend/
   fingerprinter.py       - Audio fingerprinting via AcoustID (optional)
   history_store.py       - Song play history logging (SQLite)
   media_cache.py         - YouTube video search and thumbnail caching via yt-dlp
+  video_downloader.py    - Local mp4 downloads via yt-dlp (fallback playback when an embed is blocked)
+  retry_failed_downloads.py - Retry failed downloads; reports the real error for every track
+  radio.py               - Rando: weighted-random next-track picker that learns from listening
   choreography_store.py  - Choreography data persistence
   player_state_store.py  - Player mode state persistence (queue, position, volume)
   data/
     visualaudio.db       - All app data (auto-created)
-    media_cache/         - Cached thumbnails (auto-generated)
+    media_cache/         - Cached thumbnails and downloaded videos (auto-generated)
 extension/
   manifest.json          - Chrome extension manifest (Manifest V3)
   content.js             - DOM scraper + MediaSession interceptor for streaming sites
@@ -233,4 +262,5 @@ The Windows media session fallback works with any app that exposes "Now Playing"
 
 - Windows only (WASAPI loopback + WinRT media session)
 - Google Chrome with the extension installed (for web player track detection)
-- `yt-dlp` on PATH (for YouTube search and thumbnails)
+- `yt-dlp` on PATH (for YouTube search, thumbnails, and video downloads)
+- `ffmpeg` on PATH (video/audio merging)

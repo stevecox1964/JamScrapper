@@ -2,6 +2,7 @@ import os
 import re
 import shutil
 import subprocess
+from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -130,7 +131,10 @@ class VideoDownloader:
         url = f"https://www.youtube.com/watch?v={video_id}"
         cmd = [
             "yt-dlp",
-            "-f", "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best",
+            # bestaudio alone hands back Opus, which this ffmpeg cannot put in an
+            # mp4 -- the download succeeds and the merge fails. Ask for m4a first.
+            "-f", "bestvideo[height<=1080]+bestaudio[ext=m4a]/"
+                  "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best",
             "--merge-output-format", "mp4",
             "--no-playlist",
             "--newline",
@@ -154,8 +158,12 @@ class VideoDownloader:
             last_saved_pct = 0
             total_frags = 0
             is_audio_phase = False
+            tail = deque(maxlen=12)
 
             for line in proc.stdout:
+                stripped = line.strip()
+                if stripped and "[download]" not in stripped:
+                    tail.append(stripped)
                 frag_m = frag_re.search(line)
                 if frag_m:
                     frag_num = int(frag_m.group(1))
@@ -194,21 +202,46 @@ class VideoDownloader:
                 )
                 print(f"  [DL] Completed: {video_title} ({size_mb} MB)")
             else:
+                detail = " | ".join(tail)[-400:]
+                if not output_path.exists() and proc.returncode == 0:
+                    detail = f"yt-dlp reported success but no file was written. {detail}"
                 self._update_status(
                     video_id,
                     state="failed",
-                    error=f"yt-dlp exited with code {proc.returncode}",
+                    error=f"exit {proc.returncode}: {detail}" if detail
+                          else f"yt-dlp exited with code {proc.returncode}",
                 )
+                self._cleanup_partials(video_id)
 
         except subprocess.TimeoutExpired:
             proc.kill()
             self._update_status(
                 video_id, state="failed", error="Download timed out (300s)",
             )
+            self._cleanup_partials(video_id)
         except Exception as e:
             self._update_status(video_id, state="failed", error=str(e))
+            self._cleanup_partials(video_id)
 
         return self.get_status(video_id)
+
+    def _cleanup_partials(self, video_id):
+        """Remove yt-dlp leftovers for a failed download (.fNNN, .temp, .part, .ytdl).
+
+        A failed download used to leave its fragments behind forever, so the folder
+        slowly filled with files that look like songs but will not play.
+        """
+        removed = 0
+        for f in self.video_dir.glob(f"{video_id}.*"):
+            if f.name == f"{video_id}.mp4":
+                continue
+            try:
+                f.unlink()
+                removed += 1
+            except OSError as e:
+                print(f"  [DL] Could not remove leftover {f.name}: {e}")
+        if removed:
+            print(f"  [DL] Cleaned up {removed} leftover file(s) for {video_id}")
 
     def delete_video(self, video_id):
         """Remove a downloaded video file and its status."""
