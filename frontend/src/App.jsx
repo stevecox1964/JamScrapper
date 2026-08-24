@@ -7,6 +7,7 @@ import TrackInfo from './components/TrackInfo';
 import SongHistory from './components/SongHistory';
 import PlaylistPanel from './components/PlaylistPanel';
 import PlayerControls from './components/PlayerControls';
+import MoodDisplay from './components/MoodDisplay';
 import LibraryPanel from './components/LibraryPanel';
 import YtMissesPanel from './components/YtMissesPanel';
 import YouTubeBackground, { UNPLAYABLE_ERROR_CODES } from './components/YouTubeBackground';
@@ -18,6 +19,8 @@ import { WS_URL, API_BASE } from './config';
 import './App.css';
 
 const THREE_D_MODES = new Set(['tunnel', 'galaxy', 'terrain', 'starfield']);
+// How much of the Rando history to keep in the queue. Prev walks back this far.
+const QUEUE_LIMIT = 60;
 
 export default function App() {
   const [appMode, setAppMode] = useState('live');
@@ -27,6 +30,11 @@ export default function App() {
   const [showMisses, setShowMisses] = useState(false);
   const [forceSynthetic, setForceSynthetic] = useState(false);
   const [radioOn, setRadioOn] = useState(false);
+  // videoId -> 1 | -1, for this session only. The backend keeps the real tally.
+  const [votes, setVotes] = useState({});
+  // Rando's drift, made visible. [{genre, weight}], strongest first.
+  const [mood, setMood] = useState([]);
+  const [wildcard, setWildcard] = useState(false);
   const radioOnRef = useRef(false);
   const radioBusyRef = useRef(false);
   // Stops a run of dead videos from spinning the player forever.
@@ -40,6 +48,10 @@ export default function App() {
   const [localFallbackId, setLocalFallbackId] = useState('');
   const ytErrorCodeRef = useRef(0);
   const playerQueueRef = useRef([]);
+  const playerIndexRef = useRef(0);
+  // Every videoId heard this session. Rando's queue is a history log, so this
+  // is what stops Next from walking back through songs already played.
+  const playedIdsRef = useRef(new Set());
 
   const [playerQueue, setPlayerQueue] = useState([]);
   const [playerIndex, setPlayerIndex] = useState(0);
@@ -64,8 +76,17 @@ export default function App() {
   }, [playerQueue]);
 
   useEffect(() => {
+    playerIndexRef.current = playerIndex;
+  }, [playerIndex]);
+
+  useEffect(() => {
     radioOnRef.current = radioOn;
   }, [radioOn]);
+
+  useEffect(() => {
+    const id = playerQueue[playerIndex]?.videoId;
+    if (id) playedIdsRef.current.add(id);
+  }, [playerIndex, playerQueue]);
 
   // Every new track starts fresh on YouTube; the local file is only a rescue.
   useEffect(() => {
@@ -79,8 +100,13 @@ export default function App() {
       .then(r => r.json())
       .then(state => {
         if (state?.queue?.length) {
+          // The saved queue is a log of what was already heard, not a playlist
+          // waiting to play. Resuming at the saved index left dozens of played
+          // songs sitting in front of you, so Next had to be pressed through all
+          // of them. Start at the end and remember the lot.
+          state.queue.forEach((t) => { if (t?.videoId) playedIdsRef.current.add(t.videoId); });
           setPlayerQueue(state.queue);
-          setPlayerIndex(state.queueIndex || 0);
+          setPlayerIndex(state.queue.length - 1);
           // Volume is deliberately NOT restored: playback always starts at full.
           playerStateRestoredRef.current = true;
         }
@@ -127,47 +153,33 @@ export default function App() {
     localFallbackId ? localControlsRef.current : playerControlsRef.current
   );
 
+  // There is only one playing mode now, and it is Rando. Anything you queue by
+  // hand plays first; when it runs out Rando keeps the music going.
   const playTrack = (track) => {
     if (!track?.videoId) return;
+    playedIdsRef.current = new Set();
     setPlayerQueue([track]);
     setPlayerIndex(0);
+    setRadioOn(true);
     setAppMode('player');
   };
 
   const playFromHistory = (tracks, startIndex = 0) => {
     if (!tracks.length) return;
+    playedIdsRef.current = new Set();
     setPlayerQueue(tracks);
     setPlayerIndex(startIndex);
+    setRadioOn(true);
     setAppMode('player');
-  };
-
-  const switchToPlayer = () => {
-    // If already in player mode with a queue, just switch back
-    if (playerQueueRef.current.length > 0) {
-      setAppMode('player');
-      return;
-    }
-    // Load history and start from the beginning
-    fetch(`${API_BASE}/history/playable`)
-      .then(r => r.json())
-      .then(history => {
-        const playable = history.filter(e => e.isPlayable).map(e => ({
-          videoId: e.videoId,
-          artist: e.artist,
-          title: e.title,
-          videoTitle: e.videoTitle || e.title || '',
-          duration: e.duration || 0,
-        }));
-        playFromHistory(playable, 0);
-      })
-      .catch(() => setAppMode('player'));
   };
 
   const queuePlaylist = (playlist) => {
     const tracks = (playlist?.tracks || []).filter(t => t.videoId);
     if (!tracks.length) return;
+    playedIdsRef.current = new Set();
     setPlayerQueue(tracks);
     setPlayerIndex(0);
+    setRadioOn(true);
     setAppMode('player');
   };
 
@@ -186,9 +198,14 @@ export default function App() {
         console.warn('[radio] no track returned:', data?.error || 'unknown reason');
         return false;
       }
+      setMood(track.mood || []);
+      setWildcard(Boolean(track.wildcard));
+      // Drop the oldest entries once the log gets long. Prev still reaches back
+      // a full session, and the saved state stops growing without limit.
       const queue = playerQueueRef.current;
-      setPlayerQueue([...queue, track]);
-      setPlayerIndex(queue.length);
+      const kept = queue.length >= QUEUE_LIMIT ? queue.slice(-(QUEUE_LIMIT - 1)) : queue;
+      setPlayerQueue([...kept, track]);
+      setPlayerIndex(kept.length);
       return true;
     } catch (e) {
       console.warn('[radio] request failed:', e);
@@ -198,23 +215,43 @@ export default function App() {
     }
   };
 
-  const toggleRadio = async () => {
-    if (radioOn) {
-      setRadioOn(false);
+  // The one way into playing mode. An existing queue is resumed; otherwise we
+  // ask Rando for a first pick seeded by whatever is playing live right now.
+  const enterRando = async () => {
+    setRadioOn(true);
+    if (playerQueueRef.current.length > 0) {
+      setAppMode('player');
       return;
     }
-    const seed = isPlayer
-      ? currentPlayerTrack
-      : (media?.artist ? { artist: media.artist, title: media.title } : null);
+    const seed = media?.artist ? { artist: media.artist, title: media.title } : null;
     const ok = await appendRadioTrack(seed);
-    if (!ok) return;
-    setRadioOn(true);
-    setAppMode('player');
+    if (ok) setAppMode('player');
+    else setRadioOn(false);
   };
 
-  // A song we let finish is the closest thing to a thumbs-up, so it just feeds
-  // the mood. A skip is the opposite signal and gets reported before we move on.
-  const atEndOfQueue = () => playerIndex >= playerQueueRef.current.length - 1;
+  // The first song AFTER the current one that has not been heard yet, or -1.
+  // Deliberately does not wrap: wrapping is what sent the player back to the
+  // top of the queue and replayed the whole session.
+  const nextUnplayedIndex = () => {
+    const q = playerQueueRef.current;
+    for (let i = playerIndexRef.current + 1; i < q.length; i += 1) {
+      const id = q[i]?.videoId;
+      if (id && !playedIdsRef.current.has(id)) return i;
+    }
+    return -1;
+  };
+
+  // The only way Rando moves forward. Play the next unheard song in the queue;
+  // when there is nothing left to hear, ask Rando for a new one.
+  const goForward = () => {
+    if (!radioOnRef.current) {
+      nextTrack();
+      return;
+    }
+    const next = nextUnplayedIndex();
+    if (next >= 0) setPlayerIndex(next);
+    else appendRadioTrack(null);
+  };
 
   const reportRadio = (path, track, playedSeconds) => {
     if (!track?.videoId) return;
@@ -227,7 +264,10 @@ export default function App() {
         videoId: track.videoId,
         playedSeconds: playedSeconds || 0,
       }),
-    }).catch(() => {});
+    })
+      .then((r) => r.json())
+      .then((d) => { if (d?.mood) setMood(d.mood); })
+      .catch(() => {});
   };
 
   const handleTrackEnded = () => {
@@ -235,11 +275,7 @@ export default function App() {
     if (radioOnRef.current) {
       reportRadio('finished', currentPlayerTrack, playerState.duration);
     }
-    if (radioOnRef.current && atEndOfQueue()) {
-      appendRadioTrack(null);
-      return;
-    }
-    nextTrack();
+    goForward();
   };
 
   // A video that refuses to play is not a song you disliked. Move on WITHOUT
@@ -252,8 +288,7 @@ export default function App() {
       setRadioOn(false);
       return;
     }
-    if (radioOnRef.current && atEndOfQueue()) appendRadioTrack(null);
-    else nextTrack();
+    goForward();
   };
 
   const handlePlayerVideoError = (badId, code) => {
@@ -291,14 +326,41 @@ export default function App() {
     skipDeadVideo();
   };
 
-  const handleNext = () => {
-    if (!radioOnRef.current || !atEndOfQueue()) {
-      nextTrack();
-      return;
-    }
+  // Move on without telling Rando anything. Used when the reason for moving is
+  // already recorded (a thumbs down) or is not about the song (a dead video).
+  const advance = () => {
     deadVideoStreakRef.current = 0;
-    reportRadio('skip', currentPlayerTrack, playerState.currentTime);
-    appendRadioTrack(null);
+    goForward();
+  };
+
+  const handleVote = (direction) => {
+    const track = currentPlayerTrack;
+    if (!track?.videoId || !direction) return;
+    setVotes((v) => ({ ...v, [track.videoId]: direction }));
+    fetch(`${API_BASE}/radio/vote`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        artist: track.artist || '',
+        title: track.title || '',
+        videoId: track.videoId,
+        vote: direction,
+      }),
+    })
+      .then((r) => r.json())
+      .then((d) => { if (d?.mood) setMood(d.mood); })
+      .catch(() => {});
+    // Thumbs down means "not this one" — the vote is the signal, so move on
+    // without also filing a skip and punishing the song twice.
+    if (direction < 0) advance();
+  };
+
+  const handleNext = () => {
+    deadVideoStreakRef.current = 0;
+    if (radioOnRef.current) {
+      reportRadio('skip', currentPlayerTrack, playerState.currentTime);
+    }
+    goForward();
   };
 
   const nextTrack = () => {
@@ -342,23 +404,17 @@ export default function App() {
             Live
           </button>
           <button
-            className={appMode === 'player' ? 'active' : ''}
-            onClick={switchToPlayer}
+            className={isPlayer ? 'active' : ''}
+            onClick={enterRando}
+            title="Play a random song, then keep picking songs that drift in and out of the same genre"
           >
-            Player
+            Rando
           </button>
         </div>
         <ModeSelector mode={mode} setMode={setMode} />
         {!connected && (
           <div className="status disconnected">Connecting...</div>
         )}
-        <button
-          className={`debug-toggle${radioOn ? ' active' : ''}`}
-          onClick={toggleRadio}
-          title="Play a random song, then keep picking songs that drift in and out of the same genre"
-        >
-          Rando
-        </button>
         <button className="debug-toggle" onClick={() => setShowHistory(h => !h)}>
           {showHistory ? 'Hide' : 'Show'} History
         </button>
@@ -476,6 +532,9 @@ export default function App() {
         }}
         onPrev={prevTrack}
         onNext={handleNext}
+        vote={currentPlayerTrack?.videoId ? (votes[currentPlayerTrack.videoId] || 0) : 0}
+        onVote={handleVote}
+        moodSlot={<MoodDisplay mood={mood} wildcard={wildcard} />}
         onSeek={(t) => activeControls()?.seek?.(t)}
         onVolume={(v) => activeControls()?.setVolume?.(v)}
       />

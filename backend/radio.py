@@ -18,7 +18,7 @@ WILDCARD_CHANCE = 0.18   # how often we ignore genre entirely ("out")
 MOOD_DECAY = 0.75        # how fast old genres fade (higher = longer memory)
 SHARPNESS = 2.0          # >1 favours strong genre matches harder
 BASELINE_WEIGHT = 0.05   # every song keeps a small chance, even with no match
-RECENT_MEMORY = 40       # songs to avoid repeating
+RECENT_MEMORY = 100      # songs to avoid repeating (of ~620 playable)
 MOOD_KEEP = 24           # genres to keep in the mood counter
 NOVELTY_BOOST = 1.5      # extra weight for songs you have not heard in a long time
 NOVELTY_HORIZON = 90.0   # days; past this, a song counts as fully "new" again
@@ -26,6 +26,9 @@ SKIP_PENALTY = 1.2       # mood pushed away from a skipped song's genres
 SKIP_GRACE = 45.0        # seconds; a skip after this long is not a complaint
 TASTE_WEIGHT = 0.6       # how hard long-term like/dislike bends the pick
 TASTE_CAP = 3            # finishes or skips past this stop adding weight
+VOTE_WEIGHT = 1.4        # how hard an explicit thumb bends the pick
+VOTE_CAP = 3             # thumbs past this stop adding weight
+VOTE_MOOD_PUSH = 2.0     # mood shove from one thumb (a skip is only SKIP_PENALTY)
 
 
 def _slugify(name):
@@ -49,6 +52,29 @@ class RadioDJ:
         self._conn = conn
         self._mood = Counter()
         self._recent = deque(maxlen=RECENT_MEMORY)
+        self._load_recent()
+
+    def _load_recent(self):
+        """Refill the repeat guard from disk on startup.
+
+        The guard used to live only in memory, so every restart forgot what had
+        just played and a song heard an hour ago could come straight back as if
+        it were new.
+        """
+        try:
+            rows = self._conn.execute(
+                "SELECT video_id FROM rando_stats WHERE last_played_at IS NOT NULL "
+                "ORDER BY last_played_at DESC LIMIT ?", (RECENT_MEMORY,)
+            ).fetchall()
+        except Exception as e:
+            print(f"  [RADIO] could not restore the repeat guard: {e}")
+            return
+        # Oldest first, so the deque evicts in the right order as songs play.
+        for row in reversed(rows):
+            if row["video_id"]:
+                self._recent.append(row["video_id"])
+        if self._recent:
+            print(f"  [RADIO] repeat guard restored: {len(self._recent)} recently played songs")
 
     # ---------- genre lookup ----------
 
@@ -169,19 +195,23 @@ class RadioDJ:
             del self._mood[genre]
 
     def skip(self, artist, title, video_id="", played_seconds=0.0):
-        """The user skipped this song. Push the mood away from it — gently.
+        """"Not right now." Steer the mood away from this vibe, and nothing else.
 
-        A skip is a mood, not a ban: the penalty decays like everything else, and
-        the later you skipped, the less it counts. Skipping past SKIP_GRACE
-        seconds means you mostly heard it, so it says nothing.
+        Pressing Next on a song you like is common — good song, wrong moment. So
+        Next moves the *mood*, which decays away over the next few songs, and it
+        never lowers the song's own score. Disliking a song is a separate,
+        deliberate act: that is the thumbs-down, and it lands in `votes`.
+
+        Counted in `passes`, kept apart from `skips` on purpose. `skips` is
+        frozen history from when Next meant both things at once, and `_taste`
+        still reads it; nothing writes to it any more.
         """
         strength = max(0.0, 1.0 - (float(played_seconds or 0.0) / SKIP_GRACE))
         if video_id and video_id not in self._recent:
             self._recent.append(video_id)
         # Log it either way — how long you sat with a song is data even when
-        # the skip was too late to count as a complaint.
-        self._record(video_id, artist, title,
-                     skips=1 if strength > 0 else 0,
+        # the pass was too late to say anything about the vibe.
+        self._record(video_id, artist, title, passes=1,
                      played_seconds=float(played_seconds or 0.0))
         if strength <= 0.0:
             return 0.0, []
@@ -197,6 +227,18 @@ class RadioDJ:
             if self._mood[genre] <= 0.01:
                 del self._mood[genre]
         return strength, genres
+
+    def mood_snapshot(self, n=6):
+        """The current mood as [{genre, weight}], strongest first.
+
+        Weight is relative to the strongest genre, so the UI can draw bars
+        without knowing anything about the raw counter scale.
+        """
+        top = [(g, w) for g, w in self._mood.most_common(n) if w > 0]
+        if not top:
+            return []
+        peak = top[0][1] or 1.0
+        return [{"genre": g, "weight": round(w / peak, 3)} for g, w in top]
 
     def seed(self, artist, title):
         """Start the walk from a song the user is already hearing."""
@@ -214,22 +256,24 @@ class RadioDJ:
     # ---------- long-term behaviour ----------
 
     def _record(self, video_id, artist="", title="", picks=0, finishes=0,
-                skips=0, played_seconds=0.0):
+                skips=0, played_seconds=0.0, votes=0, passes=0):
         """Fold one listening event into rando_stats. Never overwrites, only adds."""
         if not video_id:
             return
         now = datetime.now(timezone.utc).isoformat()
         self._conn.execute(
             "INSERT INTO rando_stats "
-            "(video_id, artist, title, picks, finishes, skips, played_seconds, last_played_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
+            "(video_id, artist, title, picks, finishes, skips, played_seconds, votes, passes, last_played_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(video_id) DO UPDATE SET "
             "  picks = picks + excluded.picks,"
             "  finishes = finishes + excluded.finishes,"
             "  skips = skips + excluded.skips,"
             "  played_seconds = played_seconds + excluded.played_seconds,"
+            "  votes = votes + excluded.votes,"
+            "  passes = passes + excluded.passes,"
             "  last_played_at = excluded.last_played_at",
-            (video_id, artist, title, picks, finishes, skips, played_seconds, now),
+            (video_id, artist, title, picks, finishes, skips, played_seconds, votes, passes, now),
         )
         self._conn.commit()
 
@@ -241,15 +285,44 @@ class RadioDJ:
         """
         taste = {}
         for row in self._conn.execute(
-            "SELECT video_id, finishes, skips FROM rando_stats"
+            "SELECT video_id, finishes, skips, votes FROM rando_stats"
         ):
             finishes = min(TASTE_CAP, row["finishes"] or 0)
             skips = min(TASTE_CAP, row["skips"] or 0)
-            if not finishes and not skips:
+            votes = max(-VOTE_CAP, min(VOTE_CAP, row["votes"] or 0))
+            if not finishes and not skips and not votes:
                 continue
             score = (finishes - skips) / float(TASTE_CAP)   # -1 .. 1
-            taste[row["video_id"]] = max(0.15, 1.0 + TASTE_WEIGHT * score)
+            weight = 1.0 + TASTE_WEIGHT * score
+            # An explicit thumb is louder than behaviour, so it multiplies on top.
+            weight *= 1.0 + VOTE_WEIGHT * (votes / float(VOTE_CAP))
+            taste[row["video_id"]] = max(0.05, weight)
         return taste
+
+    def vote(self, artist, title, video_id="", vote=0):
+        """Explicit thumbs up/down on the song playing now.
+
+        Unlike a skip, a thumb is unambiguous: it bends both the long-term
+        weight for this exact song and the mood for the next few picks.
+        """
+        direction = 1 if vote > 0 else -1 if vote < 0 else 0
+        if not direction or not video_id:
+            return 0, []
+        self._record(video_id, artist, title, votes=direction)
+
+        per_song, per_artist = self._genre_index()
+        genres = (
+            per_song.get(((artist or "").lower(), (title or "").lower()))
+            or per_artist.get(_slugify(artist))
+            or []
+        )
+        for genre in genres:
+            self._mood[genre] += direction * VOTE_MOOD_PUSH
+            if self._mood[genre] <= 0.01:
+                del self._mood[genre]
+        for genre, _ in self._mood.most_common()[MOOD_KEEP:]:
+            del self._mood[genre]
+        return direction, genres
 
     def finished(self, video_id, artist="", title="", played_seconds=0.0):
         """The song played all the way through — the only positive signal we take."""
@@ -291,5 +364,5 @@ class RadioDJ:
         self._absorb(pick["genres"])
         self._record(pick["videoId"], pick["artist"], pick["title"], picks=1)
         pick["wildcard"] = wildcard
-        pick["mood"] = [g for g, _ in self._mood.most_common(5)]
+        pick["mood"] = self.mood_snapshot()
         return pick, ""

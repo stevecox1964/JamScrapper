@@ -1056,8 +1056,9 @@ class TrackHandler(BaseHTTPRequestHandler):
                 print(f"  [ERR] /radio/next failed: {e}")
                 track, error = None, str(e)
             if track:
+                mood_names = ', '.join(m['genre'] for m in track['mood'])
                 print(f"  [RADIO] {'WILD ' if track['wildcard'] else ''}{track['artist']} - {track['title']} "
-                      f"(mood: {', '.join(track['mood']) or 'none'})")
+                      f"(mood: {mood_names or 'none'})")
             else:
                 print(f"  [RADIO] no pick: {error}")
             self._json_response({"track": track, "error": error})
@@ -1243,6 +1244,29 @@ class TrackHandler(BaseHTTPRequestHandler):
                 print(f"  [ERR] /radio/finished failed: {e}")
             self._json_response({"ok": True})
 
+        elif self.path == "/radio/vote":
+            body = self._read_body()
+            artist = (body.get("artist") or "").strip()
+            title = (body.get("title") or "").strip()
+            video_id = (body.get("videoId") or "").strip()
+            try:
+                vote = int(body.get("vote") or 0)
+            except (TypeError, ValueError):
+                vote = 0
+            try:
+                direction, genres = radio_dj.vote(artist, title, video_id, vote)
+            except Exception as e:
+                print(f"  [ERR] /radio/vote failed: {e}")
+                direction, genres = 0, []
+            if direction:
+                thumb = "up" if direction > 0 else "down"
+                print(f"  [RADIO] thumbs {thumb}: {artist} - {title} "
+                      f"[{', '.join(genres[:4]) or 'no genres'}]")
+            else:
+                print(f"  [RADIO] vote ignored (no direction or videoId): {artist} - {title}")
+            self._json_response({"vote": direction, "genres": genres,
+                                 "mood": radio_dj.mood_snapshot()})
+
         elif self.path == "/radio/skip":
             body = self._read_body()
             artist = (body.get("artist") or "").strip()
@@ -1255,11 +1279,12 @@ class TrackHandler(BaseHTTPRequestHandler):
                 print(f"  [ERR] /radio/skip failed: {e}")
                 strength, genres = 0.0, []
             if strength > 0:
-                print(f"  [RADIO] skip after {played:.0f}s ({strength:.0%} weight): "
+                print(f"  [RADIO] not-right-now after {played:.0f}s ({strength:.0%} vibe shift): "
                       f"{artist} - {title} [{', '.join(genres[:4]) or 'no genres'}]")
             else:
-                print(f"  [RADIO] skip after {played:.0f}s — mostly heard, ignored: {artist} - {title}")
-            self._json_response({"strength": strength, "genres": genres})
+                print(f"  [RADIO] not-right-now after {played:.0f}s — mostly heard, ignored: {artist} - {title}")
+            self._json_response({"strength": strength, "genres": genres,
+                                 "mood": radio_dj.mood_snapshot()})
 
         elif self.path == "/choreography":
             body = self._read_body()

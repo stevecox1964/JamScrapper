@@ -1140,6 +1140,95 @@ body {
   color: var(--accent);
 }
 
+/* Thumbs sit either side of the transport. Dim until you press one. */
+.player-btn-vote {
+  font-size: 16px;
+  line-height: 1;
+  padding: 5px 9px;
+  opacity: 0.45;
+}
+
+.player-btn-vote:hover {
+  opacity: 1;
+}
+
+.player-btn-vote.voted-up {
+  opacity: 1;
+  border-color: #4ade80;
+  background: rgba(74, 222, 128, 0.15);
+}
+
+.player-btn-vote.voted-down {
+  opacity: 1;
+  border-color: #f87171;
+  background: rgba(248, 113, 113, 0.15);
+}
+
+/* Rando's mood, on screen. Full-width row inside the player card. */
+.mood-display {
+  flex-basis: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-top: 8px;
+  border-top: 1px solid #2a2a2a;
+}
+
+.mood-label {
+  font-size: 13px;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  flex-shrink: 0;
+}
+
+.mood-wild {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: #fbbf24;
+  border: 1px solid #fbbf24;
+  border-radius: 5px;
+  padding: 2px 6px;
+  flex-shrink: 0;
+}
+
+.mood-bars {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+/* Each chip is its own little bar — the fill shows how strongly that genre
+   is pulling right now, so a junk tag winning is obvious at a glance. */
+.mood-chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #3a3a3a;
+  border-radius: 6px;
+  padding: 3px 9px;
+  overflow: hidden;
+  background: #171717;
+}
+
+.mood-chip-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  background: var(--accent);
+  opacity: 0.28;
+}
+
+.mood-chip-text {
+  position: relative;
+  font-size: 13px;
+  color: #ddd;
+  white-space: nowrap;
+}
+
 .player-seek {
   display: flex;
   align-items: center;

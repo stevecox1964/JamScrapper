@@ -5,6 +5,129 @@ Newest at the top. Move an item into a handoff when work actually starts.
 
 ---
 
+## ~~Show the mood~~ — DONE 2026-08-23
+
+Was the "first step" of the mood-steering item below. Built the same day it was picked up.
+
+`MoodDisplay.jsx` renders Rando's drift as a row of weighted chips inside the player card,
+plus a **WILD** badge when a pick ignored the mood. `radio.py::mood_snapshot()` returns
+`[{genre, weight}]` normalised against the strongest genre; `/radio/next`, `/radio/vote` and
+`/radio/skip` all return it, so the display stays current between picks.
+
+**What it already showed, before a single song played.** In a synthetic test the junk tag
+`british` reached **0.70 weight** — second strongest, steering as hard as a real genre. That is
+the case for song signatures, now visible instead of argued.
+
+### Also shipped that day: Next and thumbs-down now mean different things
+
+Steve: *"sometimes I am not in a mood for a song, but I like the song, but I will eject song
+for next one."* Next used to do both jobs — shift the mood **and** lower the song's own score.
+
+- **Next** = "not right now". Shifts the mood only. Logged in a new `rando_stats.passes`.
+  Never lowers the song's score.
+- **Thumbs down** = "less of this song". Lowers the score via `rando_stats.votes`, and skips.
+- `rando_stats.skips` is **frozen history** from when Next meant both. `_taste()` still reads
+  it; nothing writes to it any more. Do not "fix" this by merging the columns.
+
+---
+
+## Pandora catalog harvest — take the thumbs before the account goes
+
+**Added:** 2026-08-23
+**Status:** Proven possible, not started. Probed live on 2026-08-23.
+**Why it is urgent:** this is the only backlog item with a deadline. Last.fm will still be
+there next year. These stations will not.
+**Relates to:** `extension/content.js`, `backend/server.py` (`/track` POST), `plan/TASTE.md`
+
+### The problem
+
+The app learns a song only when it plays, in real time. About 3.5 minutes per song. The 682
+rows in `play_history` took months of listening. At that rate the tail of the catalog is
+never reached, and the account may end first.
+
+Pandora is already holding a far bigger, better-labelled version of the same data.
+
+### What was confirmed on the live account
+
+Read with plain page text. No API key, no auth token, no login trick.
+
+| Finding | Value |
+|---|---|
+| Collected stations | **49**, oldest collected March 2011 |
+| Thumbs on one station (Devo Radio) | **63 up, 44 down** |
+| Thumbed-up list URL | `/station/thumbed-up/{stationId}` — loads more on scroll |
+| Station id source | `href="/station/{id}"` on `/collection/stations` |
+| Track links | `/artist/{artist}/{album}/{track}/{trackId}` — artist, album and title all in the path |
+| Rough total | 49 x ~50 = **~2,500 thumbed songs** vs 624 in `tracks` — about 4x |
+
+Two more things worth having:
+
+- **The dislikes.** `TASTE.md` says the "Never again" list is the strongest signal, because it
+  never saturates the way liking does. Pandora has been collecting it since 2011.
+- **Thumbprint Radio** exists on the account — Pandora's own blend of every thumb.
+
+### Two cautions
+
+- **Pandora allows one active session.** Opening Pandora in a second place moves the session
+  and interrupts playback. This drove the coordination rule below.
+- **PerimeterX bot protection is on the site** (`client.px-cloud.net` loads on every page).
+  Any harvest must be paced like a person, not a firehose. Slow is fine; there are 49 pages.
+
+### Coordination rule — who drives the browser
+
+Learned the hard way on 2026-08-23: Claude opened Pandora to probe it and took over Steve's
+live session mid-song.
+
+**Claude does not drive Pandora.** Not to test, not to check, not "just to look". A one-off
+read-only probe is allowed only when Steve asks for it in that moment, and Claude says first
+that the session will move.
+
+**The harvest runs in Steve's own Chrome extension, on Steve's click.** The extension is
+already inside the Pandora page (`world: "MAIN"`), already trusted, and already talking to the
+backend on `:8766`. It uses the session that is already open, so nothing is stolen and nothing
+is interrupted.
+
+That split holds generally:
+- **Claude** writes code, reads the database, runs backend scripts, never touches the live account.
+- **Steve** drives anything that is signed in to a music service.
+
+### Plan when picked up
+
+1. Add a **Harvest** button to the extension popup. Nothing runs without a click.
+2. On click, read station ids and names from `/collection/stations`.
+3. For each station, open `/station/thumbed-up/{id}` and `/station/thumbed-down/{id}` (the
+   thumbed-down URL is assumed to mirror the up one — **verify before building on it**),
+   scroll to the end, and read artist and title from the track links.
+4. POST the rows to a new backend endpoint in one batch per station. Reuse the shape `/track`
+   already accepts. Mark each row with its source station and its thumb direction.
+5. New table for the harvest, so it stays separate from what was actually heard:
+   `pandora_thumbs(artist, title, station, direction, harvested_at)`, primary key
+   `(artist, title, station)`.
+6. Report per station: found, new, already known, skipped and why. A silent skip here loses
+   music that cannot be recovered later.
+7. **Do not auto-download 2,500 videos.** That is ~110 GB at the measured 45 MB per song.
+   Harvest the list first, look at it, then decide what to fetch.
+
+### Open questions
+
+- **Thumbs-down: exclude, or just never auto-pick?** A dislike from 2011 may not hold in 2026.
+  Leaning toward "record it, weight it down, do not hard-ban" — same reasoning as the Rando
+  skip decay.
+- **Does a thumb mean the same as a finish?** `rando_stats` measures finishing. A thumb is an
+  older, more deliberate signal from a different app. Probably worth keeping in separate columns
+  rather than merging them into one score.
+- **Station names are a free genre map.** 49 stations named after seed artists is a taste graph
+  that no API would hand over. Nothing uses it yet.
+- Does the 1000-thumb display cap that Pandora's forum mentions apply per station or per account?
+
+### First step when this is picked up
+
+Confirm `/station/thumbed-down/{id}` exists, on one station, by hand. The whole plan assumes it
+mirrors the thumbed-up URL and that assumption has not been checked. Five minutes, and it
+decides whether step 3 is one pass or two.
+
+---
+
 ## Discovery — where new songs come from after Pandora
 
 **Added:** 2026-08-23
@@ -288,6 +411,6 @@ instead of only watching where the drift goes.
 
 ### First step when this is picked up
 
-Show the mood. Render the `mood` array that `/radio/next` already returns somewhere in the
-player UI. Watching the drift for one listening session will answer most of the questions above
-far faster than arguing about them on paper.
+~~Show the mood.~~ **Done 2026-08-23** — see the entry at the top of this file. Next step is to
+watch it for a real listening session, then decide whether genre tags survive at all once
+signatures land.

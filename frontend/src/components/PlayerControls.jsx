@@ -16,6 +16,9 @@ export default function PlayerControls({
   onNext,
   onSeek,
   onVolume,
+  vote,
+  onVote,
+  moodSlot,
 }) {
   const [retracted, setRetracted] = useState(false);
 
@@ -112,11 +115,25 @@ export default function PlayerControls({
       {showTransport && (
         <div className="player-transport">
           <div className="player-buttons">
+            <button
+              className={`player-btn player-btn-vote${vote > 0 ? ' voted-up' : ''}`}
+              onClick={() => onVote?.(1)}
+              title="More like this — Rando will lean this way"
+            >
+              &#128077;
+            </button>
             <button className="player-btn" onClick={onPrev} title="Play the last song again">Prev</button>
             <button className="player-btn player-btn-main" onClick={onPlayPause} title="Play/Pause">
               {isPlaying ? 'Pause' : 'Play'}
             </button>
-            <button className="player-btn" onClick={onNext} title="Not this one right now — steers the mood away from it">Next</button>
+            <button className="player-btn" onClick={onNext} title="Not right now — shifts the vibe away, but does not count against the song">Next</button>
+            <button
+              className={`player-btn player-btn-vote${vote < 0 ? ' voted-down' : ''}`}
+              onClick={() => onVote?.(-1)}
+              title="Less like this — skips it and steers Rando away"
+            >
+              &#128078;
+            </button>
           </div>
 
           <div className="player-seek">
@@ -145,6 +162,8 @@ export default function PlayerControls({
           </div>
         </div>
       )}
+
+      {showTransport && moodSlot}
 
       {showTransport && nextTrack && (
         <div className="player-up-next" onClick={onNext} title="Skip to next">

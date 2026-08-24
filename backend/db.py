@@ -117,6 +117,8 @@ def init_db(conn: sqlite3.Connection):
             finishes       INTEGER NOT NULL DEFAULT 0,
             skips          INTEGER NOT NULL DEFAULT 0,
             played_seconds REAL NOT NULL DEFAULT 0,
+            votes          INTEGER NOT NULL DEFAULT 0,
+            passes         INTEGER NOT NULL DEFAULT 0,
             last_played_at TEXT
         );
 
@@ -142,6 +144,12 @@ def init_db(conn: sqlite3.Connection):
     for col, col_type in new_columns.items():
         if col not in existing:
             conn.execute(f"ALTER TABLE play_history ADD COLUMN {col} {col_type}")
+
+    # Thumbs up/down and "not right now" both arrived after rando_stats shipped.
+    rando_cols = {row[1] for row in conn.execute("PRAGMA table_info(rando_stats)").fetchall()}
+    for col in ("votes", "passes"):
+        if col not in rando_cols:
+            conn.execute(f"ALTER TABLE rando_stats ADD COLUMN {col} INTEGER NOT NULL DEFAULT 0")
     conn.commit()
 
 
