@@ -485,6 +485,7 @@ async def _handle_track_detected(artist, title, album, thumb_b64, source):
         "youtubeSearchStatus": initial_yt_status,
         "localVideoUrl": _local_video_url(cached_vid) if cached_vid and video_downloader.is_downloaded(cached_vid) else "",
     }
+    print(f"  [VIDSWAP] broadcast on new track: videoId='{cached_vid}' status={initial_yt_status}")
 
     # Make sure we have the video file saved locally (skips if already on disk)
     if cached_vid:
@@ -785,6 +786,7 @@ async def _fetch_youtube_data(artist, title, history_id=None, max_retries=2):
                         except Exception as e:
                             print(f"  YT history backfill error: {e}")
                     print(f"  YouTube: {result.get('videoTitle', '')} ({video_id})")
+                    print(f"  [VIDSWAP] search finished: videoId='{video_id}' for {artist} - {title}")
                     return  # Success
                 elif result:
                     print(f"  [STALE] Dropping YouTube results for {artist} - {title}")

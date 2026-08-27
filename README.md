@@ -115,7 +115,7 @@ Tracks with no YouTube match are recorded in a miss cache (7-day TTL) and surfac
 ### Prerequisites
 
 - Windows 10/11
-- Python 3.11+ (Python 3.14 supported; WinRT media session fallback is disabled but not required)
+- Python 3.11+ (verified on Python **3.14**, WinRT media session included)
 - Node.js 18+
 - Google Chrome (for the track detection extension)
 - `yt-dlp` installed and on PATH (for YouTube search, thumbnails, and video downloads) — keep it updated
@@ -144,6 +144,20 @@ To confirm the audio side is ready:
 cd backend && python -c "import librosa, soundfile; print(librosa.__version__)"
 ffprobe -version
 ```
+
+If the backend prints `Media session unavailable: No module named 'winrt.windows.foundation'`,
+the WinRT detector is dead and the Chrome extension is your only source of track info. The
+`winrt-Windows.Media.Control` package does **not** pull in everything it needs at runtime —
+`Foundation` (async calls) and `Foundation.Collections` (`get_sessions()`) are separate installs.
+Both are pinned in `requirements.txt`; to repair an existing environment:
+
+```bash
+python -m pip install winrt-Windows.Foundation winrt-Windows.Foundation.Collections
+cd backend && python test_media_session.py
+```
+
+A healthy run prints `Found N session(s)`. `Found 0 session(s)` means the detector works and
+nothing is playing — that is not an error.
 
 `start.bat` kills any stale processes on the required ports, waits for them to fully release, verifies the ports are free, then launches the backend, frontend dev server, and opens the browser automatically. If a port is still in use after cleanup, it exits with an error rather than launching a second instance.
 

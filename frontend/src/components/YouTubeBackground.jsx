@@ -85,6 +85,7 @@ export default function YouTubeBackground({
   const livePlayerRef = useRef(null);
   const playerPlayerRef = useRef(null);
   const liveIdRef = useRef('');
+  const loggedEmptyForRef = useRef(null);
   const playerIdRef = useRef('');
   const playerTimerRef = useRef(null);
   // Desired playback volume (0-1). The end-of-track fade lowers the YouTube
@@ -151,15 +152,26 @@ export default function YouTubeBackground({
 
   // LIVE mode: YouTube IFrame — muted, looping background
   useEffect(() => {
-    if (isPlayerMode || !videoId) return;
+    if (isPlayerMode) return;
+    if (!videoId) {
+      if (loggedEmptyForRef.current !== liveIdRef.current) {
+        loggedEmptyForRef.current = liveIdRef.current;
+        console.log(`[VIDSWAP] no videoId yet — still showing '${liveIdRef.current}'`);
+      }
+      return;
+    }
+    loggedEmptyForRef.current = null;
     if (videoId === liveIdRef.current && livePlayerRef.current && isPlayerAlive(livePlayerRef.current)) return;
+    console.log(`[VIDSWAP] videoId changed: '${liveIdRef.current}' -> '${videoId}'`);
     liveIdRef.current = videoId;
 
     if (livePlayerRef.current && isPlayerAlive(livePlayerRef.current)) {
+      console.log(`[VIDSWAP] calling loadVideoById('${videoId}')`);
       livePlayerRef.current.loadVideoById(videoId);
       return;
     }
 
+    console.log(`[VIDSWAP] no live player — building a new one for '${videoId}'`);
     livePlayerRef.current = null;
 
     whenReady(() => {
@@ -184,6 +196,9 @@ export default function YouTubeBackground({
         events: {
           onReady: (e) => e.target.playVideo(),
           onStateChange: (e) => {
+            let playingId = '';
+            try { playingId = e.target.getVideoData?.()?.video_id || ''; } catch (_) {}
+            console.log(`[VIDSWAP] live state=${e.data} wanted='${liveIdRef.current}' actually='${playingId}'`);
             if (e.data === window.YT.PlayerState.ENDED) {
               e.target.seekTo(0);
               e.target.playVideo();
