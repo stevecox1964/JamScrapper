@@ -57,6 +57,13 @@ function isPlayerAlive(player) {
   }
 }
 
+// YouTube remembers the viewer's caption preference and can turn captions on by
+// itself. Unloading the caption modules switches them off for this player.
+function hideCaptions(player) {
+  try { player.unloadModule('captions'); } catch (_) {}
+  try { player.unloadModule('cc'); } catch (_) {}
+}
+
 function applyVolume(player, volume) {
   if (!player || !isPlayerAlive(player)) return;
   try {
@@ -192,14 +199,16 @@ export default function YouTubeBackground({
           playlist: videoId,
           modestbranding: 1,
           iv_load_policy: 3,
+          cc_load_policy: 0,
           disablekb: 1,
           fs: 0,
           playsinline: 1,
           origin: window.location.origin,
         },
         events: {
-          onReady: (e) => e.target.playVideo(),
+          onReady: (e) => { hideCaptions(e.target); e.target.playVideo(); },
           onStateChange: (e) => {
+            if (e.data === window.YT.PlayerState.PLAYING) hideCaptions(e.target);
             let playingId = '';
             try { playingId = e.target.getVideoData?.()?.video_id || ''; } catch (_) {}
             console.log(`[VIDSWAP] live state=${e.data} wanted='${liveIdRef.current}' actually='${playingId}'`);
@@ -283,6 +292,7 @@ export default function YouTubeBackground({
           loop: 0,
           modestbranding: 1,
           iv_load_policy: 3,
+          cc_load_policy: 0,
           disablekb: 1,
           fs: 0,
           playsinline: 1,
@@ -290,10 +300,12 @@ export default function YouTubeBackground({
         },
         events: {
           onReady: (e) => {
+            hideCaptions(e.target);
             applyVolume(e.target, userVolumeRef.current);
             e.target.playVideo();
           },
           onStateChange: (e) => {
+            if (e.data === window.YT.PlayerState.PLAYING) hideCaptions(e.target);
             setPlayerPaused(e.data === window.YT.PlayerState.PAUSED);
             if (e.data === window.YT.PlayerState.ENDED) {
               onTrackEndedRef.current?.();
