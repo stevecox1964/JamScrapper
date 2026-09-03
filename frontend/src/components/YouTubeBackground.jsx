@@ -102,6 +102,10 @@ export default function YouTubeBackground({
   onPlayerStateRef.current = onPlayerState;
   const [fadeOut, setFadeOut] = useState(0);
   const [liveFade, setLiveFade] = useState(false);
+  // YouTube paints its own big play button in the middle of a paused embed,
+  // and nothing outside the iframe can hide it. So the whole video fades out
+  // while paused and the button goes with it.
+  const [playerPaused, setPlayerPaused] = useState(false);
   const FADE_DURATION = 3; // seconds before end to start fading
 
   const isPlayerMode = appMode === 'player';
@@ -290,6 +294,7 @@ export default function YouTubeBackground({
             e.target.playVideo();
           },
           onStateChange: (e) => {
+            setPlayerPaused(e.data === window.YT.PlayerState.PAUSED);
             if (e.data === window.YT.PlayerState.ENDED) {
               onTrackEndedRef.current?.();
             }
@@ -376,7 +381,7 @@ export default function YouTubeBackground({
 
       <div
         className={`yt-layer${showPlayer ? '' : ' hidden'}`}
-        style={{ opacity: showPlayer ? 1 - fadeOut : 0, transition: 'opacity 0.3s ease' }}
+        style={{ opacity: showPlayer && !playerPaused ? 1 - fadeOut : 0, transition: 'opacity 0.3s ease' }}
       >
         <div ref={playerTargetRef} />
       </div>
