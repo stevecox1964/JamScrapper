@@ -19,3 +19,9 @@ yt-dlp>=2024.0.0
 # release these are the first things to lack wheels. Verified on 3.14.
 librosa>=1.0.0
 soundfile>=0.13.0
+
+# Secrets come from the git-ignored .env files (see env.py).
+python-dotenv>=1.0.0
+
+# Mood labels - Claude reads artist/title/genres and returns mood words.
+anthropic>=1.0.0

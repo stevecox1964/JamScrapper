@@ -23,6 +23,9 @@ import sys
 
 warnings.filterwarnings("ignore", category=sc.SoundcardRuntimeWarning)
 
+from env import load_env
+load_env()
+
 from db import get_db, init_db
 from fingerprinter import AudioFingerprinter, load_acoustid_key
 from artist_store import ArtistStore, enrich_artist_profile, fetch_album_from_musicbrainz
