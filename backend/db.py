@@ -133,6 +133,16 @@ def init_db(conn: sqlite3.Connection):
             analysed_at TEXT NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS moods (
+            video_id    TEXT PRIMARY KEY,
+            energy      INTEGER NOT NULL,
+            valence     INTEGER NOT NULL,
+            tension     INTEGER NOT NULL,
+            moods       TEXT NOT NULL DEFAULT '[]',
+            model       TEXT NOT NULL DEFAULT '',
+            labelled_at TEXT NOT NULL
+        );
+
         CREATE INDEX IF NOT EXISTS idx_play_history_played_at ON play_history(played_at);
         CREATE INDEX IF NOT EXISTS idx_rando_stats_last_played ON rando_stats(last_played_at);
         CREATE INDEX IF NOT EXISTS idx_playlist_tracks_playlist ON playlist_tracks(playlist_id, position);
