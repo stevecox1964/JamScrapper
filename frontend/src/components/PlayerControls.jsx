@@ -5,6 +5,7 @@ export default function PlayerControls({
   media,
   currentTrack,
   nextTrack,
+  radioOn,
   queuePosition,
   queueLength,
   isPlaying,
@@ -169,6 +170,12 @@ export default function PlayerControls({
         <div className="player-up-next" onClick={onNext} title="Skip to next">
           <span className="player-up-next-label">Up next:</span>
           <span className="player-up-next-track">{nextTrack.artist} — {nextTrack.title || nextTrack.videoTitle}</span>
+        </div>
+      )}
+      {showTransport && !nextTrack && radioOn && (
+        <div className="player-up-next" onClick={onNext} title="Skip to next">
+          <span className="player-up-next-label">Up next:</span>
+          <span className="player-up-next-track">Rando picks when this one ends</span>
         </div>
       )}
     </div>

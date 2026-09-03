@@ -137,9 +137,17 @@ export default function App() {
 
   const is3D = THREE_D_MODES.has(mode);
   const currentPlayerTrack = playerQueue[playerIndex] || null;
-  const nextPlayerTrack = playerQueue.length > 1
-    ? playerQueue[(playerIndex + 1) % playerQueue.length]
-    : null;
+  // What actually plays next: the first unheard song after this one. Never
+  // wraps — Rando does not wrap either, it asks for a fresh pick instead, so
+  // wrapping here showed the first song of the session as "Up next" while a
+  // brand new song played.
+  const nextPlayerTrack = (() => {
+    for (let i = playerIndex + 1; i < playerQueue.length; i += 1) {
+      const id = playerQueue[i]?.videoId;
+      if (id && !playedIdsRef.current.has(id)) return playerQueue[i];
+    }
+    return null;
+  })();
   const isPlayer = appMode === 'player';
   // Fallback visuals when the embedded video can't show (or the user forces
   // them on). Priority: saved local video + MTV FX > image slideshow.
@@ -517,6 +525,7 @@ export default function App() {
         media={displayMedia}
         currentTrack={currentPlayerTrack}
         nextTrack={nextPlayerTrack}
+        radioOn={radioOn}
         queuePosition={playerIndex}
         queueLength={playerQueue.length}
         isPlaying={playerState.playing}
