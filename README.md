@@ -42,6 +42,22 @@ an mp4 by older ffmpeg builds: the download succeeds, the merge fails, and the r
 `.fNNN` fragments instead of a song. A failed download now records the real yt-dlp error and deletes
 its own leftovers.
 
+### Capture card colors (live mode)
+
+In live mode the bottom card shows whether the current song's video is saved, so you know
+when it is safe to skip to the next song on Pandora. Skipping too early loses the video:
+the YouTube search stops when the track changes.
+
+| Card | Meaning |
+|---|---|
+| Dark | Still looking for the video (or no video exists). Do not skip. |
+| Yellow | Downloading the video. Wait. |
+| Green | Video is on disk. Safe to skip. |
+| Red | Download failed — see the `[DL] FAILED` line in the backend log. |
+
+The backend drives this with `media_info.videoSaveStatus` (`""`, `"saving"`, `"failed"`);
+green is `localVideoUrl` being set. Player mode never colors the card.
+
 To retry everything that previously failed:
 
 ```bash
