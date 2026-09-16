@@ -44,16 +44,24 @@ export default function PlayerControls({
     ? `rgb(${media.dominantColors[0].join(',')})`
     : null;
 
-  // Capture mode only: green = the video is saved on disk, so it is safe to
-  // skip to the next song. The backend sets localVideoUrl only once the file exists.
-  const captured = !showTransport && Boolean(media?.localVideoUrl);
+  // Capture mode only. Yellow = saving the video, red = save failed,
+  // green = the video is on disk, so it is safe to skip to the next song.
+  const saveState = showTransport ? '' :
+    media?.videoSaveStatus === 'failed' ? 'save-failed' :
+    media?.videoSaveStatus === 'saving' ? 'saving' :
+    media?.localVideoUrl ? 'captured' : '';
+  const saveTitle = {
+    captured: 'Video saved — safe to skip to the next song',
+    saving: 'Saving the video — wait before you skip',
+    'save-failed': 'Video save failed — see the backend log',
+  }[saveState];
 
   if (!showTransport && !artist && !title) return null;
 
   return (
     <div
-      className={`player-controls ${retracted ? 'retracted' : ''} ${captured ? 'captured' : ''}`}
-      title={captured ? 'Video saved — safe to skip to the next song' : undefined}
+      className={`player-controls ${retracted ? 'retracted' : ''} ${saveState}`}
+      title={saveTitle}
     >
       {/* Pull-tab arrow — same idea as the track info card on the left */}
       <button

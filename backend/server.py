@@ -106,6 +106,7 @@ media_info = {
     "youtubeThumbnailUrl": "",
     "youtubeDuration": 0,
     "localVideoUrl": "",
+    "videoSaveStatus": "",  # "" | "saving" | "failed" (saved = localVideoUrl set)
 }
 _last_track_key = ""
 _last_track_seen_at = 0.0
@@ -487,6 +488,7 @@ async def _handle_track_detected(artist, title, album, thumb_b64, source):
         "youtubeDuration": cached_yt.get("duration", 0) if cached_yt else 0,
         "youtubeSearchStatus": initial_yt_status,
         "localVideoUrl": _local_video_url(cached_vid) if cached_vid and video_downloader.is_downloaded(cached_vid) else "",
+        "videoSaveStatus": "",
     }
     print(f"  [VIDSWAP] broadcast on new track: videoId='{cached_vid}' status={initial_yt_status}")
 
@@ -630,22 +632,37 @@ def _local_video_url(video_id):
 async def _ensure_video_downloaded(artist, title, video_id, video_title=""):
     """Save the YouTube video locally unless we already have it. When the file
     is ready and the track is still current, publish localVideoUrl so the
-    frontend can play the saved copy (with FX) if the embed doesn't show."""
+    frontend can play the saved copy (with FX) if the embed doesn't show.
+    While it runs, videoSaveStatus is "saving"; if it fails, "failed"."""
     global media_info, _profile_version
     if not video_id:
         return
     my_key = _normalize_key(artist, title)
 
+    def _set_save_status(status):
+        global media_info, _profile_version
+        if _enrichment_track_key != my_key:
+            return
+        if media_info.get("videoSaveStatus") == status:
+            return
+        _profile_version += 1
+        media_info = {
+            **media_info,
+            "videoSaveStatus": status,
+            "_profileVersion": _profile_version,
+        }
+
     def _publish():
         global media_info, _profile_version
         if _enrichment_track_key != my_key:
             return
-        if media_info.get("localVideoUrl"):
+        if media_info.get("localVideoUrl") and not media_info.get("videoSaveStatus"):
             return
         _profile_version += 1
         media_info = {
             **media_info,
             "localVideoUrl": _local_video_url(video_id),
+            "videoSaveStatus": "",
             "_profileVersion": _profile_version,
         }
         print(f"  [DL] Local video ready: {artist} - {title} ({video_id})")
@@ -653,20 +670,25 @@ async def _ensure_video_downloaded(artist, title, video_id, video_title=""):
     if video_downloader.is_downloaded(video_id):
         _publish()
         return
+    _set_save_status("saving")
     if video_id in _downloads_in_flight:
-        return
+        return  # the running download publishes when it finishes
     _downloads_in_flight.add(video_id)
     try:
         async with _download_semaphore:
             print(f"  [DL] Saving video: {artist} - {title} ({video_id})")
-            status = await asyncio.to_thread(
-                video_downloader.download_video, video_id, artist, title, video_title
-            )
+            try:
+                status = await asyncio.to_thread(
+                    video_downloader.download_video, video_id, artist, title, video_title
+                )
+            except Exception as e:
+                status = {"state": "failed", "error": str(e)}
         if status and status.get("state") == "completed":
             _publish()
         else:
             err = (status or {}).get("error") if status else "yt-dlp not available"
             print(f"  [DL] FAILED: {artist} - {title} ({video_id}): {err}")
+            _set_save_status("failed")
     finally:
         _downloads_in_flight.discard(video_id)
 

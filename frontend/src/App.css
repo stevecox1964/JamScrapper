@@ -992,6 +992,20 @@ body {
   box-shadow: 0 0 14px rgba(46, 204, 113, 0.35);
 }
 
+/* Capture mode: saving the video, wait. */
+.player-controls.saving {
+  background: rgba(56, 44, 6, 0.88);
+  border-color: #f1c40f;
+  box-shadow: 0 0 14px rgba(241, 196, 15, 0.3);
+}
+
+/* Capture mode: the video save failed. */
+.player-controls.save-failed {
+  background: rgba(60, 10, 10, 0.88);
+  border-color: #e74c3c;
+  box-shadow: 0 0 14px rgba(231, 76, 60, 0.35);
+}
+
 /* Retracted: the whole bar drops off-screen, only the pull-tab stays. */
 .player-controls.retracted {
   transform: translateY(calc(100% + 16px));
