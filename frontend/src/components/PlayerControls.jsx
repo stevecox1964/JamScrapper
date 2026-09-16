@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { API_BASE } from '../config';
 
 export default function PlayerControls({
   visible,
@@ -44,10 +45,27 @@ export default function PlayerControls({
     ? `rgb(${media.dominantColors[0].join(',')})`
     : null;
 
+  // Green card = video saved + signature measured + mood labelled.
+  const [capture, setCapture] = useState(null);
+  useEffect(() => {
+    setCapture(null);
+    if (!videoId) return;
+    let cancelled = false;
+    fetch(`${API_BASE}/captured/${encodeURIComponent(videoId)}`)
+      .then((res) => res.json())
+      .then((data) => { if (!cancelled) setCapture(data); })
+      .catch((err) => console.warn('[captured] check failed:', err));
+    return () => { cancelled = true; };
+  }, [videoId, media?.localVideoUrl]);
+  const captured = Boolean(capture?.captured);
+
   if (!showTransport && !artist && !title) return null;
 
   return (
-    <div className={`player-controls ${retracted ? 'retracted' : ''}`}>
+    <div
+      className={`player-controls ${retracted ? 'retracted' : ''} ${captured ? 'captured' : ''}`}
+      title={capture ? `Video ${capture.video ? 'yes' : 'no'} · Signature ${capture.signature ? 'yes' : 'no'} · Mood ${capture.mood ? 'yes' : 'no'}` : undefined}
+    >
       {/* Pull-tab arrow — same idea as the track info card on the left */}
       <button
         type="button"

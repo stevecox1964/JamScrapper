@@ -36,6 +36,8 @@ from playlist_store import PlaylistStore
 from choreography_store import ChoreographyStore
 from player_state_store import PlayerStateStore
 from radio import RadioDJ
+from signature_store import SignatureStore
+from mood_store import MoodStore
 
 SAMPLE_RATE = 44100
 BLOCK_SIZE = 2048
@@ -145,6 +147,8 @@ player_state_store = PlayerStateStore(_db_conn)
 history_store_http = HistoryStore(_http_db_conn)
 media_cache_http = MediaCache(_http_db_conn)
 radio_dj = RadioDJ(_http_db_conn)
+signature_store_http = SignatureStore(_http_db_conn)
+mood_store_http = MoodStore(_http_db_conn)
 
 
 # Known streaming services and their tab title patterns
@@ -1079,6 +1083,20 @@ class TrackHandler(BaseHTTPRequestHandler):
             else:
                 print(f"  [RADIO] no pick: {error}")
             self._json_response({"track": track, "error": error})
+
+        elif self.path.startswith("/captured/"):
+            # A song is "captured" when we have all three: the saved video,
+            # the measured signature, and the Claude mood label.
+            video_id = self.path[len("/captured/"):].split("?")[0]
+            video = video_downloader.is_downloaded(video_id)
+            signature = signature_store_http.has(video_id)
+            mood = mood_store_http.get(video_id) is not None
+            self._json_response({
+                "video": video,
+                "signature": signature,
+                "mood": mood,
+                "captured": video and signature and mood,
+            })
 
         elif self.path == "/radio/reset":
             radio_dj.reset()
