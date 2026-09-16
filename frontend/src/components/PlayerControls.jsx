@@ -1,5 +1,4 @@
-import { useEffect, useState } from 'react';
-import { API_BASE } from '../config';
+import { useState } from 'react';
 
 export default function PlayerControls({
   visible,
@@ -45,26 +44,16 @@ export default function PlayerControls({
     ? `rgb(${media.dominantColors[0].join(',')})`
     : null;
 
-  // Green card = video saved + signature measured + mood labelled.
-  const [capture, setCapture] = useState(null);
-  useEffect(() => {
-    setCapture(null);
-    if (!videoId) return;
-    let cancelled = false;
-    fetch(`${API_BASE}/captured/${encodeURIComponent(videoId)}`)
-      .then((res) => res.json())
-      .then((data) => { if (!cancelled) setCapture(data); })
-      .catch((err) => console.warn('[captured] check failed:', err));
-    return () => { cancelled = true; };
-  }, [videoId, media?.localVideoUrl]);
-  const captured = Boolean(capture?.captured);
+  // Capture mode only: green = the video is saved on disk, so it is safe to
+  // skip to the next song. The backend sets localVideoUrl only once the file exists.
+  const captured = !showTransport && Boolean(media?.localVideoUrl);
 
   if (!showTransport && !artist && !title) return null;
 
   return (
     <div
       className={`player-controls ${retracted ? 'retracted' : ''} ${captured ? 'captured' : ''}`}
-      title={capture ? `Video ${capture.video ? 'yes' : 'no'} · Signature ${capture.signature ? 'yes' : 'no'} · Mood ${capture.mood ? 'yes' : 'no'}` : undefined}
+      title={captured ? 'Video saved — safe to skip to the next song' : undefined}
     >
       {/* Pull-tab arrow — same idea as the track info card on the left */}
       <button
