@@ -1015,10 +1015,10 @@ body {
 .player-controls-tab {
   position: absolute;
   left: 50%;
-  top: -28px;
+  top: -36px;
   transform: translateX(-50%);
-  width: 56px;
-  height: 28px;
+  width: 80px;
+  height: 36px;
   background: rgba(0, 0, 0, 0.82);
   border: 1px solid #333;
   border-bottom: none;
@@ -1044,6 +1044,12 @@ body {
 
 .player-controls-tab:hover {
   background: rgba(30, 30, 40, 0.95);
+}
+
+/* Bigger, brighter arrow so the tab is easy to find */
+.player-controls-tab .tab-arrow {
+  font-size: 18px;
+  color: rgba(255, 255, 255, 0.85);
 }
 
 .player-controls-tab:hover .tab-arrow {
