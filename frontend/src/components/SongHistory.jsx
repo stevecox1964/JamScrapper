@@ -1,6 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { API_BASE, thumbnailUrl } from '../config';
 
+// New song: show the panel, then slide it away after this many seconds.
+const AUTO_HIDE_SECONDS = 6;
+
 function formatDuration(seconds) {
   if (!seconds || seconds <= 0) return '';
   const m = Math.floor(seconds / 60);
@@ -135,6 +138,23 @@ export default function SongHistory({ historyVersion, visible, onPlayFromHistory
     return () => clearInterval(id);
   }, [visible]);
 
+  // Each new song pops the panel out, then it slides away on its own.
+  // A manual click on the tab cancels the pending auto-hide.
+  const [retracted, setRetracted] = useState(false);
+  const newest = history[0];
+  const songKey = newest ? `${newest.artist}|${newest.title}|${newest.timestamp}` : '';
+  const [shownKey, setShownKey] = useState(songKey);
+  if (songKey !== shownKey) {
+    setShownKey(songKey);
+    setRetracted(false);
+  }
+  const hideTimer = useRef(null);
+  useEffect(() => {
+    if (!songKey) return;
+    hideTimer.current = setTimeout(() => setRetracted(true), AUTO_HIDE_SECONDS * 1000);
+    return () => clearTimeout(hideTimer.current);
+  }, [songKey]);
+
   if (!visible) return null;
 
   const handleClick = (entry) => {
@@ -157,33 +177,43 @@ export default function SongHistory({ historyVersion, visible, onPlayFromHistory
   };
 
   return (
-    <div className="history-panel">
-      <div className="history-title">Play History</div>
-      {info && <div className="history-info">{info}</div>}
-      <div className="history-list">
-        {history.map((entry, i) => {
-          const isNowPlaying = i === 0 || (activeVideoId && entry.videoId === activeVideoId);
-          const classes = [
-            'history-card',
-            entry.isPlayable ? 'playable' : '',
-            isNowPlaying ? 'now-playing' : '',
-            i === 0 ? 'hero' : '',
-          ].filter(Boolean).join(' ');
-          return (
-            <button
-              key={i}
-              type="button"
-              className={classes}
-              onClick={() => handleClick(entry)}
-              title={entry.isPlayable ? 'Play on YouTube' : 'No video found'}
-            >
-              <HistoryEntryContent entry={entry} isNowPlaying={isNowPlaying} />
-            </button>
-          );
-        })}
-        {history.length === 0 && (
-          <div className="history-empty">No songs played yet</div>
-        )}
+    <div className={`history-dock ${retracted ? 'retracted' : ''}`}>
+      <button
+        type="button"
+        className="history-dock-tab"
+        onClick={() => { clearTimeout(hideTimer.current); setRetracted((r) => !r); }}
+        title={retracted ? 'Show play history' : 'Hide play history'}
+      >
+        <span className="tab-arrow">{retracted ? '▶' : '◀'}</span>
+      </button>
+      <div className="history-panel">
+        <div className="history-title">Play History</div>
+        {info && <div className="history-info">{info}</div>}
+        <div className="history-list">
+          {history.map((entry, i) => {
+            const isNowPlaying = i === 0 || (activeVideoId && entry.videoId === activeVideoId);
+            const classes = [
+              'history-card',
+              entry.isPlayable ? 'playable' : '',
+              isNowPlaying ? 'now-playing' : '',
+              i === 0 ? 'hero' : '',
+            ].filter(Boolean).join(' ');
+            return (
+              <button
+                key={i}
+                type="button"
+                className={classes}
+                onClick={() => handleClick(entry)}
+                title={entry.isPlayable ? 'Play on YouTube' : 'No video found'}
+              >
+                <HistoryEntryContent entry={entry} isNowPlaying={isNowPlaying} />
+              </button>
+            );
+          })}
+          {history.length === 0 && (
+            <div className="history-empty">No songs played yet</div>
+          )}
+        </div>
       </div>
     </div>
   );
