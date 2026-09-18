@@ -15,6 +15,13 @@ All enrichment is non-blocking — track info appears instantly, metadata fills 
 
 The track info card slides in from the left when a new song starts, then auto-retracts after a few seconds to keep the view clean. Hover to keep it open, or click the arrow tab to pull it back out anytime.
 
+The bottom player card and the play history panel work the same way. Each new song pops
+them out, then they slide away after 6 seconds (`AUTO_HIDE_SECONDS` in `PlayerControls.jsx`
+and `SongHistory.jsx`). A pull-tab stays on screen: **▲** at the bottom for the player card,
+**▶** at the left edge for history. Click the tab to show or hide the card; a manual click
+cancels the auto-hide until the next song. While the player card is down you cannot see
+its capture color (below).
+
 ## Playlist System
 
 Create playlists from any track that has a YouTube video:
@@ -81,6 +88,7 @@ The play history panel shows a live card view of recent tracks:
 - Visible by default on launch — no need to toggle it open
 - Retries on startup until data arrives, handling backend startup races
 - Each song is stored once — replaying a song bumps it to the top rather than creating a duplicate
+- Pops out on each new song, slides off to the left after 6 seconds; the **▶** tab brings it back
 
 ## Visualizer Modes
 
@@ -267,10 +275,10 @@ frontend/
       YouTubeBackground.jsx   - Video background (YouTube IFrame, live + player modes)
       SyntheticVideo.jsx      - "AI Video" compositor (Canvas 2D scroll-in/hold/scroll-out slideshow from fetched images)
       YtMissesPanel.jsx       - Admin panel for YouTube search misses (clear to re-search)
-      SongHistory.jsx         - Live history panel with card layout and real-time updates
+      SongHistory.jsx         - Live history panel with card layout; auto-hides after 6s, ▶ pull-tab
       PlaylistPanel.jsx       - Playlist management panel
       LibraryPanel.jsx        - Saved library + playlist playback panel (Player mode)
-      PlayerControls.jsx      - Transport controls (play/pause, seek, volume, next/prev)
+      PlayerControls.jsx      - Bottom player card: song info + transport; auto-hides after 6s, ▲ pull-tab
     hooks/
       useAudioWebSocket.js    - WebSocket data hook + /now-playing startup fallback
     utils/
