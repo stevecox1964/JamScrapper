@@ -1,4 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+
+// New song: show the card, then slide it down after this many seconds.
+const AUTO_HIDE_SECONDS = 6;
 
 export default function PlayerControls({
   visible,
@@ -39,6 +42,21 @@ export default function PlayerControls({
   const showTransport = visible;
   const artist = media?.artist || currentTrack?.artist || '';
   const title = media?.title || currentTrack?.title || currentTrack?.videoTitle || '';
+  const songKey = `${artist}|${title}`;
+
+  // Each new song pops the card up, then it slides away on its own.
+  // A manual click on the tab cancels the pending auto-hide.
+  const [shownKey, setShownKey] = useState(songKey);
+  if (songKey !== shownKey) {
+    setShownKey(songKey);
+    setRetracted(false);
+  }
+  const hideTimer = useRef(null);
+  useEffect(() => {
+    if (songKey === '|') return;
+    hideTimer.current = setTimeout(() => setRetracted(true), AUTO_HIDE_SECONDS * 1000);
+    return () => clearTimeout(hideTimer.current);
+  }, [songKey]);
   const videoId = media?.youtubeVideoId || currentTrack?.videoId || '';
   const accentColor = media?.dominantColors?.[0]
     ? `rgb(${media.dominantColors[0].join(',')})`
@@ -67,7 +85,7 @@ export default function PlayerControls({
       <button
         type="button"
         className="player-controls-tab"
-        onClick={() => setRetracted((r) => !r)}
+        onClick={() => { clearTimeout(hideTimer.current); setRetracted((r) => !r); }}
         title={retracted ? 'Show player card' : 'Hide player card'}
       >
         <span className="tab-arrow">{retracted ? '▲' : '▼'}</span>
