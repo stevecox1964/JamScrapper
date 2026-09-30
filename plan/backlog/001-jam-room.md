@@ -20,11 +20,11 @@ No Pandora. No audio re-streaming. Only his YouTube picks.
 ## Design direction (2026-09-30)
 
 Steve is fine with writing a server and putting it in the cloud.
-He does not want Cloudflare (or any tunnel) baked into the design.
+Steve does not want Cloudflare (or any tunnel) baked into the design.
 
 So: **a small standalone room server in the cloud.**
 - Everyone connects *out* to it: Steve's app, friends' apps, browser guests.
-- Steve's PC opens no ports. Nothing points into his PC.
+- Steve's PC opens no ports. Nothing points into Steve's PC.
 - The room server only knows rooms, sync, jam queue and chat. It holds no library, no files.
 - Steve's app is just the first member with host rights (it sends sync; others follow).
 - The room URL is one setting in `frontend/src/config.js`. Same code runs on localhost for testing.
