@@ -8,7 +8,7 @@
 ## Why
 
 A serious ask. Steve wants friends to join what he plays in player mode.
-No Pandora. No audio re-streaming. Only his YouTube picks.
+No Pandora. No audio re-streaming. Only Steve's YouTube picks.
 
 ## The idea
 
