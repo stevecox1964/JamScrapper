@@ -31,7 +31,9 @@ So: **a small standalone room server in the cloud.**
 - Host: any cheap always-on box (AWS Lightsail, Fly.io, a small VPS). RunPod is for GPUs; not needed.
 - Voice later: WebRTC, set up through the same room server. Add a TURN relay only if some friends can't connect.
 
-Still to decide when this is picked up: which cloud host, and how friends log in (room code vs accounts).
+Cloud host: **AWS Lightsail** (Steve already has an AWS account). Leaning, not final.
+
+Still to decide when this is picked up: how friends log in (room code vs accounts).
 
 ## What "done" looks like
 
