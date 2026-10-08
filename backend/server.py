@@ -7,6 +7,7 @@ import json
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 import threading
+import time
 from urllib.parse import parse_qs, urlparse
 import warnings
 import numpy as np
@@ -1420,6 +1421,19 @@ class TrackHandler(BaseHTTPRequestHandler):
                 except Exception as e:
                     print(f"  [ERR] /yt-unplayable failed: {e}")
                     self._json_response({"ok": False, "error": str(e)})
+
+        elif self.path == "/client-log":
+            # Frontend diagnostic lines ([VIDSWAP]) go to a file, so they can
+            # be read without copying the browser console.
+            body = self._read_body()
+            line = str(body.get("line") or "")[:500]
+            if line:
+                print(f"  {line}")
+                stamp = time.strftime("%H:%M:%S")
+                log_path = Path(__file__).parent / "data" / "client.log"
+                with open(log_path, "a", encoding="utf-8") as f:
+                    f.write(f"{stamp} {line}\n")
+            self._json_response({"ok": True})
 
         elif self.path == "/player-state":
             body = self._read_body()

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { API_BASE } from '../config';
 
 let apiLoaded = false;
 let apiReady = false;
@@ -72,6 +73,19 @@ function applyVolume(player, volume) {
   } catch (_) {}
 }
 
+// [VIDSWAP] lines also go to the backend, which appends them to
+// backend/data/client.log, so they can be read without the browser console.
+function vidlog(line) {
+  console.log(line);
+  fetch(`${API_BASE}/client-log`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ line }),
+  }).catch(() => {});
+}
+
+const LIVE_CHECK_MS = 4000;
+
 // YouTube IFrame error codes we treat as "the video can't actually play":
 // 100 = removed/private, 101 & 150 = embedding disabled by uploader or owner.
 export const UNPLAYABLE_ERROR_CODES = new Set([100, 101, 150]);
@@ -104,6 +118,9 @@ export default function YouTubeBackground({
   const onTrackEndedRef = useRef(onTrackEnded);
   const onPlayerVideoErrorRef = useRef(onPlayerVideoError);
   const onPlayerStateRef = useRef(onPlayerState);
+  const onLiveVideoErrorRef = useRef(onLiveVideoError);
+  const liveCheckTimerRef = useRef(null);
+  onLiveVideoErrorRef.current = onLiveVideoError;
   onTrackEndedRef.current = onTrackEnded;
   onPlayerVideoErrorRef.current = onPlayerVideoError;
   onPlayerStateRef.current = onPlayerState;
@@ -161,75 +178,116 @@ export default function YouTubeBackground({
     return () => { controlsRef.current = null; };
   }, [controlsRef]);
 
+  // Builds the live player in a fresh element. YT.Player swaps the element
+  // it is given for an iframe, so reusing liveTargetRef's div directly left a
+  // detached node to build into on any rebuild. Any old player is destroyed.
+  const buildLivePlayer = (id) => {
+    const container = liveTargetRef.current;
+    if (!container) return;
+    try { livePlayerRef.current?.destroy?.(); } catch (_) {}
+    container.innerHTML = '';
+    const mount = document.createElement('div');
+    container.appendChild(mount);
+    livePlayerRef.current = new window.YT.Player(mount, {
+      videoId: id,
+      playerVars: {
+        autoplay: 1,
+        mute: 1,
+        controls: 0,
+        showinfo: 0,
+        rel: 0,
+        // No loop/playlist here: they pin a one-item playlist to the FIRST
+        // videoId, which can pull the player back to the old song after
+        // loadVideoById(). The ENDED handler below does the looping instead.
+        modestbranding: 1,
+        iv_load_policy: 3,
+        cc_load_policy: 0,
+        disablekb: 1,
+        fs: 0,
+        playsinline: 1,
+        origin: window.location.origin,
+      },
+      events: {
+        onReady: (e) => { hideCaptions(e.target); e.target.playVideo(); },
+        onStateChange: (e) => {
+          if (e.data === window.YT.PlayerState.PLAYING) hideCaptions(e.target);
+          let playingId = '';
+          try { playingId = e.target.getVideoData?.()?.video_id || ''; } catch (_) {}
+          vidlog(`[VIDSWAP] live state=${e.data} wanted='${liveIdRef.current}' actually='${playingId}'`);
+          if (e.data === window.YT.PlayerState.ENDED) {
+            e.target.seekTo(0);
+            e.target.playVideo();
+          }
+        },
+        onError: (e) => {
+          const code = Number(e?.data || 0);
+          if (UNPLAYABLE_ERROR_CODES.has(code)) {
+            const badId = liveIdRef.current;
+            vidlog(`[YT] Live video ${badId} unplayable (error ${code}) — flipping to synthetic`);
+            onLiveVideoErrorRef.current?.(badId, code);
+          }
+        },
+      },
+    });
+  };
+
+  // A long-open page can end up showing the old song's video after a switch,
+  // while a fresh page works. So a few seconds after each switch, check what
+  // the player really has, and rebuild it once if it is wrong.
+  const scheduleLiveCheck = (id, canRebuild) => {
+    clearTimeout(liveCheckTimerRef.current);
+    liveCheckTimerRef.current = setTimeout(() => {
+      if (liveIdRef.current !== id) return; // the song moved on again
+      const p = livePlayerRef.current;
+      const alive = Boolean(p && isPlayerAlive(p));
+      let playingId = '';
+      try { playingId = p?.getVideoData?.()?.video_id || ''; } catch (_) {}
+      if (alive && playingId === id) {
+        vidlog(`[VIDSWAP] check ok: '${id}'`);
+        return;
+      }
+      if (!canRebuild) {
+        vidlog(`[VIDSWAP] check FAILED again: wanted '${id}' player has '${playingId}' alive=${alive} — giving up`);
+        return;
+      }
+      vidlog(`[VIDSWAP] check FAILED: wanted '${id}' player has '${playingId}' alive=${alive} — rebuilding`);
+      whenReady(() => {
+        buildLivePlayer(id);
+        scheduleLiveCheck(id, false);
+      });
+    }, LIVE_CHECK_MS);
+  };
+
+  useEffect(() => () => clearTimeout(liveCheckTimerRef.current), []);
+
   // LIVE mode: YouTube IFrame — muted, looping background
   useEffect(() => {
     if (isPlayerMode) return;
     if (!videoId) {
       if (loggedEmptyForRef.current !== liveIdRef.current) {
         loggedEmptyForRef.current = liveIdRef.current;
-        console.log(`[VIDSWAP] no videoId yet — still showing '${liveIdRef.current}'`);
+        vidlog(`[VIDSWAP] no videoId yet — still showing '${liveIdRef.current}'`);
       }
       return;
     }
     loggedEmptyForRef.current = null;
     if (videoId === liveIdRef.current && livePlayerRef.current && isPlayerAlive(livePlayerRef.current)) return;
-    console.log(`[VIDSWAP] videoId changed: '${liveIdRef.current}' -> '${videoId}'`);
+    vidlog(`[VIDSWAP] videoId changed: '${liveIdRef.current}' -> '${videoId}' hidden=${document.hidden}`);
     liveIdRef.current = videoId;
 
     if (livePlayerRef.current && isPlayerAlive(livePlayerRef.current)) {
-      console.log(`[VIDSWAP] calling loadVideoById('${videoId}')`);
+      vidlog(`[VIDSWAP] calling loadVideoById('${videoId}')`);
       livePlayerRef.current.loadVideoById(videoId);
+      scheduleLiveCheck(videoId, true);
       return;
     }
 
-    console.log(`[VIDSWAP] no live player — building a new one for '${videoId}'`);
-    livePlayerRef.current = null;
-
+    vidlog(`[VIDSWAP] no live player — building a new one for '${videoId}'`);
     whenReady(() => {
-      if (!liveTargetRef.current) return;
-      livePlayerRef.current = new window.YT.Player(liveTargetRef.current, {
-        videoId,
-        playerVars: {
-          autoplay: 1,
-          mute: 1,
-          controls: 0,
-          showinfo: 0,
-          rel: 0,
-          // No loop/playlist here: they pin a one-item playlist to the FIRST
-          // videoId, which can pull the player back to the old song after
-          // loadVideoById(). The ENDED handler below does the looping instead.
-          modestbranding: 1,
-          iv_load_policy: 3,
-          cc_load_policy: 0,
-          disablekb: 1,
-          fs: 0,
-          playsinline: 1,
-          origin: window.location.origin,
-        },
-        events: {
-          onReady: (e) => { hideCaptions(e.target); e.target.playVideo(); },
-          onStateChange: (e) => {
-            if (e.data === window.YT.PlayerState.PLAYING) hideCaptions(e.target);
-            let playingId = '';
-            try { playingId = e.target.getVideoData?.()?.video_id || ''; } catch (_) {}
-            console.log(`[VIDSWAP] live state=${e.data} wanted='${liveIdRef.current}' actually='${playingId}'`);
-            if (e.data === window.YT.PlayerState.ENDED) {
-              e.target.seekTo(0);
-              e.target.playVideo();
-            }
-          },
-          onError: (e) => {
-            const code = Number(e?.data || 0);
-            if (UNPLAYABLE_ERROR_CODES.has(code)) {
-              const badId = liveIdRef.current;
-              console.warn(`[YT] Live video ${badId} unplayable (error ${code}) — flipping to synthetic`);
-              onLiveVideoError?.(badId, code);
-            }
-          },
-        },
-      });
+      buildLivePlayer(videoId);
+      scheduleLiveCheck(videoId, false);
     });
-  }, [videoId, isPlayerMode, onLiveVideoError]);
+  }, [videoId, isPlayerMode]);
 
   // Pause/resume live player when switching modes
   useEffect(() => {
