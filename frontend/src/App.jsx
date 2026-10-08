@@ -29,6 +29,9 @@ const SHOW_PANEL_BUTTONS = false;
 // MTV Mode (saved video + FX when the YouTube embed fails) is switched off for
 // now; those songs get the still image instead.
 const SHOW_MTV_MODE = false;
+// Songs with no video get the moving band-image slideshow. Set true to show
+// one still image instead.
+const USE_STILL_IMAGE = false;
 
 export default function App() {
   const [appMode, setAppMode] = useState('live');
@@ -165,10 +168,10 @@ export default function App() {
   const synthForced = SHOW_EXTRA_VIEW_BUTTONS && forceSynthetic;
   const showFallback = appMode === 'live' && (media?.youtubeSearchStatus === 'not_found' || synthForced);
   const showLocalVideo = showFallback && hasLocalVideo && SHOW_MTV_MODE;
-  // No video at all: a still image. The moving slideshow only runs when the
-  // (hidden) Synth Video button forces it.
-  const showSynthetic = showFallback && !showLocalVideo && synthForced;
-  const showStill = showFallback && !showLocalVideo && !synthForced;
+  // No video at all: the moving slideshow of band images (or one still image
+  // when USE_STILL_IMAGE is on).
+  const showSynthetic = showFallback && !showLocalVideo && (synthForced || !USE_STILL_IMAGE);
+  const showStill = showFallback && !showLocalVideo && !showSynthetic;
   const stillUrl = [media?.albumArt, ...(media?.artistImages || [])]
     .filter(Boolean)
     .map((u) => (u.startsWith('/') ? `${API_BASE}${u}` : u))[0] || '';
