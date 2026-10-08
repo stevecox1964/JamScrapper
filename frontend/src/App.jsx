@@ -24,6 +24,11 @@ const QUEUE_LIMIT = 60;
 // Video/Starfield and Synth Video buttons are hidden to keep the header simple.
 // The code behind them stays; set this to true to bring the buttons back.
 const SHOW_EXTRA_VIEW_BUTTONS = false;
+// History and Playlists buttons (and their panels) are switched off for now.
+const SHOW_PANEL_BUTTONS = false;
+// MTV Mode (saved video + FX when the YouTube embed fails) is switched off for
+// now; those songs get the still image instead.
+const SHOW_MTV_MODE = false;
 
 export default function App() {
   const [appMode, setAppMode] = useState('live');
@@ -157,11 +162,11 @@ export default function App() {
   const hasRealVideo = Boolean(media?.youtubeVideoId);
   const hasLocalVideo = Boolean(media?.localVideoUrl);
   const showFallback = appMode === 'live' && (media?.youtubeSearchStatus === 'not_found' || forceSynthetic);
-  const showLocalVideo = showFallback && hasLocalVideo;
+  const showLocalVideo = showFallback && hasLocalVideo && SHOW_MTV_MODE;
   // No video at all: a still image. The moving slideshow only runs when the
   // (hidden) Synth Video button forces it.
-  const showSynthetic = showFallback && !hasLocalVideo && forceSynthetic;
-  const showStill = showFallback && !hasLocalVideo && !forceSynthetic;
+  const showSynthetic = showFallback && !showLocalVideo && forceSynthetic;
+  const showStill = showFallback && !showLocalVideo && !forceSynthetic;
   const stillUrl = [media?.albumArt, ...(media?.artistImages || [])]
     .filter(Boolean)
     .map((u) => (u.startsWith('/') ? `${API_BASE}${u}` : u))[0] || '';
@@ -432,12 +437,16 @@ export default function App() {
         {!connected && (
           <div className="status disconnected">Connecting...</div>
         )}
-        <button className="debug-toggle" onClick={() => setShowHistory(h => !h)}>
-          {showHistory ? 'Hide' : 'Show'} History
-        </button>
-        <button className="debug-toggle" onClick={() => setShowPlaylist(p => !p)}>
-          {showPlaylist ? 'Hide' : 'Show'} Playlists
-        </button>
+        {SHOW_PANEL_BUTTONS && (
+          <button className="debug-toggle" onClick={() => setShowHistory(h => !h)}>
+            {showHistory ? 'Hide' : 'Show'} History
+          </button>
+        )}
+        {SHOW_PANEL_BUTTONS && (
+          <button className="debug-toggle" onClick={() => setShowPlaylist(p => !p)}>
+            {showPlaylist ? 'Hide' : 'Show'} Playlists
+          </button>
+        )}
         <button className="debug-toggle" onClick={() => setShowMisses(m => !m)}>
           {showMisses ? 'Hide' : 'Show'} YT Misses
         </button>
@@ -530,7 +539,7 @@ export default function App() {
       )}
 
       <TrackInfo media={displayMedia} hasVideo={Boolean(displayMedia?.youtubeVideoId || (isPlayer && currentPlayerTrack?.videoId))} />
-      <SongHistory historyVersion={historyVersion} visible={showHistory} onPlayFromHistory={playFromHistory} activeVideoId={isPlayer ? currentPlayerTrack?.videoId : null} media={media} />
+      <SongHistory historyVersion={historyVersion} visible={SHOW_PANEL_BUTTONS && showHistory} onPlayFromHistory={playFromHistory} activeVideoId={isPlayer ? currentPlayerTrack?.videoId : null} media={media} />
       <PlaylistPanel visible={showPlaylist && appMode === 'live'} currentMedia={media} />
       <LibraryPanel
         visible={showPlaylist && appMode === 'player'}
