@@ -161,12 +161,14 @@ export default function App() {
   // them on). Priority: saved local video + MTV FX > image slideshow.
   const hasRealVideo = Boolean(media?.youtubeVideoId);
   const hasLocalVideo = Boolean(media?.localVideoUrl);
-  const showFallback = appMode === 'live' && (media?.youtubeSearchStatus === 'not_found' || forceSynthetic);
+  // A hidden Synth Video button must not stay switched on.
+  const synthForced = SHOW_EXTRA_VIEW_BUTTONS && forceSynthetic;
+  const showFallback = appMode === 'live' && (media?.youtubeSearchStatus === 'not_found' || synthForced);
   const showLocalVideo = showFallback && hasLocalVideo && SHOW_MTV_MODE;
   // No video at all: a still image. The moving slideshow only runs when the
   // (hidden) Synth Video button forces it.
-  const showSynthetic = showFallback && !showLocalVideo && forceSynthetic;
-  const showStill = showFallback && !showLocalVideo && !forceSynthetic;
+  const showSynthetic = showFallback && !showLocalVideo && synthForced;
+  const showStill = showFallback && !showLocalVideo && !synthForced;
   const stillUrl = [media?.albumArt, ...(media?.artistImages || [])]
     .filter(Boolean)
     .map((u) => (u.startsWith('/') ? `${API_BASE}${u}` : u))[0] || '';
@@ -517,12 +519,12 @@ export default function App() {
             <strong>
               {showLocalVideo
                 ? 'MTV Mode'
-                : forceSynthetic && hasRealVideo ? 'AI Video Mode' : showStill ? 'No Video' : 'Image-Only Mode'}
+                : synthForced && hasRealVideo ? 'AI Video Mode' : showStill ? 'No Video' : 'Image-Only Mode'}
             </strong>
             <span className="synthetic-banner-sub">
               {showLocalVideo
                 ? 'Embed unavailable — playing the saved video with FX.'
-                : forceSynthetic && hasRealVideo
+                : synthForced && hasRealVideo
                   ? 'Generated music video — composed from album art & artist images.'
                   : showStill
                     ? 'No YouTube video for this track — showing a still image.'
