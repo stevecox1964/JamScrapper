@@ -9,7 +9,7 @@ export default function MoodDisplay({ mood, wildcard }) {
     <div className="mood-display">
       <span className="mood-label">Vibe</span>
       {wildcard && (
-        <span className="mood-wild" title="Rando ignored the mood on this pick and jumped somewhere new">
+        <span className="mood-wild" title="Local ignored the mood on this pick and jumped somewhere new">
           WILD
         </span>
       )}

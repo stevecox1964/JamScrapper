@@ -152,7 +152,7 @@ export default function PlayerControls({
             <button
               className={`player-btn player-btn-vote${vote > 0 ? ' voted-up' : ''}`}
               onClick={() => onVote?.(1)}
-              title="More like this — Rando will lean this way"
+              title="More like this — Local will lean this way"
             >
               &#128077;
             </button>
@@ -164,7 +164,7 @@ export default function PlayerControls({
             <button
               className={`player-btn player-btn-vote${vote < 0 ? ' voted-down' : ''}`}
               onClick={() => onVote?.(-1)}
-              title="Less like this — skips it and steers Rando away"
+              title="Less like this — skips it and steers Local away"
             >
               &#128078;
             </button>
@@ -208,7 +208,7 @@ export default function PlayerControls({
       {showTransport && !nextTrack && radioOn && (
         <div className="player-up-next" onClick={onNext} title="Skip to next">
           <span className="player-up-next-label">Up next:</span>
-          <span className="player-up-next-track">Rando picks when this one ends</span>
+          <span className="player-up-next-track">Local picks when this one ends</span>
         </div>
       )}
     </div>
