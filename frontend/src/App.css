@@ -161,6 +161,22 @@ body {
   pointer-events: none;
 }
 
+/* Live mode, no video found: one still image (album art or artist photo) */
+.still-image-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background: #000;
+}
+
+.still-image-layer img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
 /* Saved-video MTV compositor: real video full-bleed + FX canvas on top */
 .local-video-layer {
   position: fixed;

@@ -21,6 +21,9 @@ import './App.css';
 const THREE_D_MODES = new Set(['tunnel', 'galaxy', 'terrain', 'starfield']);
 // How much of the Rando history to keep in the queue. Prev walks back this far.
 const QUEUE_LIMIT = 60;
+// Video/Starfield and Synth Video buttons are hidden to keep the header simple.
+// The code behind them stays; set this to true to bring the buttons back.
+const SHOW_EXTRA_VIEW_BUTTONS = false;
 
 export default function App() {
   const [appMode, setAppMode] = useState('live');
@@ -155,7 +158,13 @@ export default function App() {
   const hasLocalVideo = Boolean(media?.localVideoUrl);
   const showFallback = appMode === 'live' && (media?.youtubeSearchStatus === 'not_found' || forceSynthetic);
   const showLocalVideo = showFallback && hasLocalVideo;
-  const showSynthetic = showFallback && !hasLocalVideo;
+  // No video at all: a still image. The moving slideshow only runs when the
+  // (hidden) Synth Video button forces it.
+  const showSynthetic = showFallback && !hasLocalVideo && forceSynthetic;
+  const showStill = showFallback && !hasLocalVideo && !forceSynthetic;
+  const stillUrl = [media?.albumArt, ...(media?.artistImages || [])]
+    .filter(Boolean)
+    .map((u) => (u.startsWith('/') ? `${API_BASE}${u}` : u))[0] || '';
 
   const activeControls = () => (
     localFallbackId ? localControlsRef.current : playerControlsRef.current
@@ -414,12 +423,12 @@ export default function App() {
           <button
             className={isPlayer ? 'active' : ''}
             onClick={enterRando}
-            title="Play a random song, then keep picking songs that drift in and out of the same genre"
+            title="Play songs from your local library, picking songs that drift in and out of the same genre"
           >
-            Rando
+            Local
           </button>
         </div>
-        <ModeSelector mode={mode} setMode={setMode} />
+        {SHOW_EXTRA_VIEW_BUTTONS && <ModeSelector mode={mode} setMode={setMode} />}
         {!connected && (
           <div className="status disconnected">Connecting...</div>
         )}
@@ -432,7 +441,7 @@ export default function App() {
         <button className="debug-toggle" onClick={() => setShowMisses(m => !m)}>
           {showMisses ? 'Hide' : 'Show'} YT Misses
         </button>
-        {appMode === 'live' && (
+        {SHOW_EXTRA_VIEW_BUTTONS && appMode === 'live' && (
           <button
             className={`debug-toggle${forceSynthetic ? ' active' : ''}`}
             onClick={() => setForceSynthetic(s => !s)}
@@ -486,6 +495,12 @@ export default function App() {
         <SyntheticVideo dataRef={dataRef} media={media} />
       )}
 
+      {showStill && (
+        <div className="still-image-layer">
+          {stillUrl && <img src={stillUrl} alt="" />}
+        </div>
+      )}
+
       {showFallback && (
         <div className="synthetic-banner" role="status">
           <span className="synthetic-banner-dot">◌</span>
@@ -493,14 +508,16 @@ export default function App() {
             <strong>
               {showLocalVideo
                 ? 'MTV Mode'
-                : forceSynthetic && hasRealVideo ? 'AI Video Mode' : 'Image-Only Mode'}
+                : forceSynthetic && hasRealVideo ? 'AI Video Mode' : showStill ? 'No Video' : 'Image-Only Mode'}
             </strong>
             <span className="synthetic-banner-sub">
               {showLocalVideo
                 ? 'Embed unavailable — playing the saved video with FX.'
                 : forceSynthetic && hasRealVideo
                   ? 'Generated music video — composed from album art & artist images.'
-                  : 'No YouTube video for this track — visuals composed from album art & artist images.'}
+                  : showStill
+                    ? 'No YouTube video for this track — showing a still image.'
+                    : 'No YouTube video for this track — visuals composed from album art & artist images.'}
             </span>
           </span>
         </div>
