@@ -436,9 +436,11 @@ export default function App() {
           <button
             className={`debug-toggle${forceSynthetic ? ' active' : ''}`}
             onClick={() => setForceSynthetic(s => !s)}
-            title="Switch between the artist's YouTube video and an AI-generated music video"
+            title="Lit: show the synth video (saved copy with FX, or a slideshow). Off: show the YouTube video"
           >
-            {forceSynthetic ? 'Real Video' : 'AI Video'}
+            {/* One fixed name, lit when on. The old label flipped to "Real
+                Video" while the synth video was showing, which read backwards. */}
+            Synth Video
           </button>
         )}
       </div>
