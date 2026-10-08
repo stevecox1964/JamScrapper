@@ -275,17 +275,13 @@ export default function YouTubeBackground({
     vidlog(`[VIDSWAP] videoId changed: '${liveIdRef.current}' -> '${videoId}' hidden=${document.hidden}`);
     liveIdRef.current = videoId;
 
-    if (livePlayerRef.current && isPlayerAlive(livePlayerRef.current)) {
-      vidlog(`[VIDSWAP] calling loadVideoById('${videoId}')`);
-      livePlayerRef.current.loadVideoById(videoId);
-      scheduleLiveCheck(videoId, true);
-      return;
-    }
-
-    vidlog(`[VIDSWAP] no live player — building a new one for '${videoId}'`);
+    // New song: throw the old player away and build a fresh one. Reusing it
+    // with loadVideoById() left long-open pages stuck on the old video.
+    vidlog(`[VIDSWAP] new song — building a fresh player for '${videoId}'`);
     whenReady(() => {
+      if (liveIdRef.current !== videoId) return; // the song moved on again
       buildLivePlayer(videoId);
-      scheduleLiveCheck(videoId, false);
+      scheduleLiveCheck(videoId, true);
     });
   }, [videoId, isPlayerMode]);
 
