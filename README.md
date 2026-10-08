@@ -22,6 +22,34 @@ and `SongHistory.jsx`). A pull-tab stays on screen: **▲** at the bottom for th
 cancels the auto-hide until the next song. While the player card is down you cannot see
 its capture color (below).
 
+## Header Buttons
+
+The header is kept simple:
+- **Live** — follow what Pandora (or another streaming app) is playing
+- **Local** — play songs from your own library (this was called "Rando")
+
+Other buttons are switched off, not deleted. To bring one back, set its flag to `true` at the
+top of `frontend/src/App.jsx`:
+
+| Flag | Turns on |
+|---|---|
+| `SHOW_EXTRA_VIEW_BUTTONS` | The Video / Starfield picker and the Synth Video toggle |
+| `SHOW_PANEL_BUTTONS` | The header History / Playlists buttons (the History panel's ◀/▶ tab is always there) |
+| `SHOW_MTV_MODE` | The saved video with FX when a YouTube embed is blocked |
+| `USE_STILL_IMAGE` | One still image, instead of the slideshow, for songs with no video |
+
+## Live Video Switching
+
+In Live mode, every new song throws the old YouTube player away and builds a fresh one with
+the new video. Reusing one player left long-open pages stuck on the previous song's video.
+
+- Song has a YouTube video → it plays.
+- Song has no video → the band-image slideshow starts on its own (see AI Video below).
+- Four seconds after each switch the page checks which video the player really has. If it is
+  wrong, the player is rebuilt once.
+- `[VIDSWAP]` diagnostic lines are sent to the backend (`POST /client-log`) and appended to
+  `backend/data/client.log`, so they can be read without the browser console.
+
 ## Playlist System
 
 Create playlists from any track that has a YouTube video:
@@ -113,7 +141,7 @@ When a track has no real YouTube video — or any time you want — JamScrapper 
 - A blurred, color-graded full-bleed background crossfades underneath, with vignette and film grain
 - Renders on the video layer in real time via Canvas 2D — no downloads, no generation latency
 
-It activates automatically when YouTube search comes up empty (`youtubeSearchStatus: 'not_found'`), and you can force it on for any track with the **AI Video** button in the header to A/B the artist's official video against the generated one. The real video keeps playing underneath the opaque compositor, so toggling back to **Real Video** is instant.
+It activates automatically when YouTube search comes up empty (`youtubeSearchStatus: 'not_found'`), and it can be forced on for any track with the **Synth Video** button (hidden by default, see Header Buttons) to A/B the artist's official video against the generated one. The real video keeps playing underneath the opaque compositor, so toggling back is instant.
 
 Tracks with no YouTube match are recorded in a miss cache (7-day TTL) and surfaced in the **YT Misses** admin panel, where you can clear individual entries to force a re-search. Live videos that load but can't actually play (removed, private, or embedding-disabled) flip to AI Video automatically.
 
@@ -226,10 +254,10 @@ Opens at `http://localhost:5173`. Connects to backend at `localhost:8765`/`8766`
 1. Run `start.bat` (or start backend + frontend manually)
 2. Play audio on any supported streaming site (Pandora, Spotify, YouTube Music, etc.)
 3. Track info and music video appear automatically
-4. Toggle song history or playlist panels from the header
-5. Switch to **Player** mode to stream playlists and history tracks with audio
+4. Open or close play history with the ◀/▶ tab on the left
+5. Switch to **Local** to play songs from your library with audio
 6. Click any row in **History** with a known video to launch it instantly
-7. Hit **AI Video** in the header to replace the video background with a synthetic music video composed from album art and artist images
+7. Songs with no YouTube video get the image slideshow automatically
 
 ### Optional: Audio Fingerprinting
 
