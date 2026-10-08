@@ -195,8 +195,9 @@ export default function YouTubeBackground({
           controls: 0,
           showinfo: 0,
           rel: 0,
-          loop: 1,
-          playlist: videoId,
+          // No loop/playlist here: they pin a one-item playlist to the FIRST
+          // videoId, which can pull the player back to the old song after
+          // loadVideoById(). The ENDED handler below does the looping instead.
           modestbranding: 1,
           iv_load_policy: 3,
           cc_load_policy: 0,
