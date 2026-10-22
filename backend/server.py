@@ -6,6 +6,7 @@ import io
 import json
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
+import re
 import threading
 import time
 from urllib.parse import parse_qs, urlparse
@@ -466,6 +467,9 @@ async def _handle_track_detected(artist, title, album, thumb_b64, source):
     # Reject incomplete detections — need both artist and title
     if not (artist and artist.strip()) or not (title and title.strip()):
         return
+
+    # YouTube auto-generated channels are named "<Artist> - Topic"; lookups need the bare name
+    artist = re.sub(r"\s+-\s+Topic$", "", artist.strip())
 
     track_key = _normalize_key(artist, title)
     now = asyncio.get_running_loop().time()
