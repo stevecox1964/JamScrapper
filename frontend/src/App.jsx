@@ -167,11 +167,14 @@ export default function App() {
   const hasLocalVideo = Boolean(media?.localVideoUrl);
   // A hidden Synth Video button must not stay switched on.
   const synthForced = SHOW_EXTRA_VIEW_BUTTONS && forceSynthetic;
-  const showFallback = appMode === 'live' && (media?.youtubeSearchStatus === 'not_found' || synthForced);
-  const showLocalVideo = showFallback && hasLocalVideo && SHOW_MTV_MODE;
+  // A YouTube "Topic" video is one still album cover for the whole song — in
+  // either mode, cover it with the band slideshow while its audio keeps playing.
+  const topicVideo = Boolean(media?.topicVideo);
+  const showFallback = (appMode === 'live' && (media?.youtubeSearchStatus === 'not_found' || synthForced)) || topicVideo;
+  const showLocalVideo = showFallback && !topicVideo && hasLocalVideo && SHOW_MTV_MODE;
   // No video at all: the moving slideshow of band images (or one still image
   // when USE_STILL_IMAGE is on).
-  const showSynthetic = showFallback && !showLocalVideo && (synthForced || !USE_STILL_IMAGE);
+  const showSynthetic = showFallback && !showLocalVideo && (synthForced || topicVideo || !USE_STILL_IMAGE);
   const showStill = showFallback && !showLocalVideo && !showSynthetic;
   const stillUrl = [media?.albumArt, ...(media?.artistImages || [])]
     .filter(Boolean)
@@ -530,7 +533,9 @@ export default function App() {
                 ? 'Embed unavailable — playing the saved video with FX.'
                 : synthForced && hasRealVideo
                   ? 'Generated music video — composed from album art & artist images.'
-                  : showStill
+                  : topicVideo
+                    ? 'YouTube video is only a still cover — showing artist images instead.'
+                    : showStill
                     ? 'No YouTube video for this track — showing a still image.'
                     : 'No YouTube video for this track — visuals composed from album art & artist images.'}
             </span>

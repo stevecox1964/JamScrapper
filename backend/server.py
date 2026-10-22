@@ -468,8 +468,11 @@ async def _handle_track_detected(artist, title, album, thumb_b64, source):
     if not (artist and artist.strip()) or not (title and title.strip()):
         return
 
-    # YouTube auto-generated channels are named "<Artist> - Topic"; lookups need the bare name
-    artist = re.sub(r"\s+-\s+Topic$", "", artist.strip())
+    # YouTube auto-generated channels are named "<Artist> - Topic"; lookups need the bare name.
+    # Their videos are one still album cover, so the frontend shows the image slideshow instead.
+    clean_artist = re.sub(r"\s+-\s+Topic$", "", artist.strip())
+    topic_video = clean_artist != artist.strip()
+    artist = clean_artist
 
     track_key = _normalize_key(artist, title)
     now = asyncio.get_running_loop().time()
@@ -546,6 +549,7 @@ async def _handle_track_detected(artist, title, album, thumb_b64, source):
         "youtubeSearchStatus": initial_yt_status,
         "localVideoUrl": _local_video_url(cached_vid) if cached_vid and video_downloader.is_downloaded(cached_vid) else "",
         "videoSaveStatus": "",
+        "topicVideo": topic_video,
     }
     print(f"  [VIDSWAP] broadcast on new track: videoId='{cached_vid}' status={initial_yt_status}")
 
