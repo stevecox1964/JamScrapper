@@ -137,6 +137,8 @@ All 3D modes render with `alpha: true` and no scene background so the YouTube vi
 
 When a track has no real YouTube video — or any time you want — JamScrapper composes its own music video from the images it already fetched (album art, artist photos, YouTube thumbnail):
 
+Band pictures come from TheAudioDB, Wikipedia, Deezer (artist photo), iTunes (up to 10 album covers) and Wikimedia Commons (up to 12 photos). Most bands get 10–25 images, so the slideshow keeps moving. Little-known bands may get album covers only.
+
 - Each image scrolls in from the right, settles centered and **holds**, then scrolls off to the left as the next slides in
 - A blurred, color-graded full-bleed background crossfades underneath, with vignette and film grain
 - Renders on the video layer in real time via Canvas 2D — no downloads, no generation latency
@@ -154,7 +156,7 @@ Tracks with no YouTube match are recorded in a miss cache (7-day TTL) and surfac
 | Transport | WebSocket at ~30fps |
 | Media Detection | Chrome extension (DOM scraping + MediaSession), `winrt` (Windows "Now Playing") |
 | Audio Fingerprinting | `pyacoustid` / Chromaprint (optional) |
-| Artist Profiles | MusicBrainz genres + album lookup, TheAudioDB/Wikipedia images, Pillow color extraction |
+| Artist Profiles | MusicBrainz genres + album lookup, TheAudioDB/Wikipedia/Deezer/iTunes/Wikimedia Commons images, Pillow color extraction |
 | YouTube Search | `yt-dlp` (aggressive fallback queries + retry + thumbnail caching) |
 | Video Background | YouTube IFrame API (live: muted loop, player: unmuted with track-end detection) |
 | Media Textures | Three.js textures + Canvas image rendering from artist/album/YouTube media |
@@ -324,7 +326,6 @@ start.bat                - One-click launcher for backend + frontend (dev mode)
 - Playback sync (pause detection, visualizer freeze, paused UI badge)
 - Smart queue auto-fill (related tracks when queue ends)
 - Mood-based sequencing from play history
-- Expand the AI Video image pool (iTunes / Deezer / Cover Art Archive) for richer synthetic videos
 
 ## Supported Streaming Sites
 

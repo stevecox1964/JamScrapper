@@ -1,7 +1,7 @@
 # Latest handoff
 
-See: [HANDOFF_2026-10-08_1851.md](HANDOFF_2026-10-08_1851.md)
+See: [HANDOFF_2026-10-21_2007.md](HANDOFF_2026-10-21_2007.md)
 
-**TL;DR:** Live video swap fixed (fresh YouTube player per song). Header is Live / Local.
-Local-first playback planned in `plan/LOCAL_FIRST_PLAYBACK.md`. Next: Step 1, make the
-backend HTTP server threaded.
+**TL;DR:** No-video songs now get a moving slideshow with 10–25 band pictures
+(Deezer, iTunes, Wikimedia Commons added). Next: Step 1 of
+`plan/LOCAL_FIRST_PLAYBACK.md`, make the backend HTTP server threaded.
