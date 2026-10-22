@@ -395,6 +395,58 @@ def fetch_artist_images(artist_name):
         except Exception as e:
             print(f"Wikipedia error: {e}")
 
+    # More pictures for the no-video slideshow: one or two images look frozen.
+    # Deezer artist photo
+    try:
+        resp = requests.get(
+            "https://api.deezer.com/search/artist",
+            params={"q": artist_name}, timeout=5,
+        )
+        for a in resp.json().get("data", [])[:1]:
+            if a.get("name", "").lower() == artist_name.lower() and a.get("picture_xl"):
+                images.append(a["picture_xl"])
+    except Exception as e:
+        print(f"Deezer error: {e}")
+
+    # iTunes album covers
+    try:
+        resp = requests.get(
+            "https://itunes.apple.com/search",
+            params={"term": artist_name, "entity": "album", "limit": 25},
+            timeout=5,
+        )
+        covers = []
+        for r in resp.json().get("results", []):
+            url = r.get("artworkUrl100", "")
+            if url and r.get("artistName", "").lower() == artist_name.lower():
+                url = url.replace("100x100bb", "600x600bb")
+                if url not in covers:
+                    covers.append(url)
+        images.extend(covers[:10])
+    except Exception as e:
+        print(f"iTunes error: {e}")
+
+    # Wikimedia Commons photos (concerts, press shots)
+    try:
+        resp = requests.get(
+            "https://commons.wikimedia.org/w/api.php",
+            params={
+                "action": "query", "format": "json",
+                "generator": "search", "gsrsearch": f'"{artist_name}" filetype:bitmap',
+                "gsrnamespace": 6, "gsrlimit": 12,
+                "prop": "imageinfo", "iiprop": "url", "iiurlwidth": 1000,
+            },
+            headers={"User-Agent": "AudioVisualizer/1.0"},
+            timeout=5,
+        )
+        for page in resp.json().get("query", {}).get("pages", {}).values():
+            info = (page.get("imageinfo") or [{}])[0]
+            if info.get("thumburl"):
+                images.append(info["thumburl"])
+    except Exception as e:
+        print(f"Commons error: {e}")
+
+    print(f"  [IMG] {artist_name}: {len(images)} images")
     _image_cache[artist_name] = images
     return images
 
